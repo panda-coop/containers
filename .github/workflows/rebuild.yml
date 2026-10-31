@@ -1,0 +1,47 @@
+name: rebuild
+
+# Weekly: rebuild a published image only when its UBI base digest changed since it was built.
+# The rebuild keeps the upstream version and uses the base tag's current digest; Renovate later
+# moves the Containerfile pin to the same digest.
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild every published image even if its base is unchanged
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.base.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: base
+        env:
+          FORCE: ${{ inputs.force || false }}
+        run: echo "images=$(.github/scripts/base-changes.sh)" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: changes
+    if: needs.changes.outputs.images != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.images) }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish.yml
+    with:
+      image: ${{ matrix.image }}
+      base-image: ${{ matrix.base_image }}
