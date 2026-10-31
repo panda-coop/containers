@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/github/license/panda-coop/containers)](LICENSE)
 [![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen?logo=renovatebot)](https://github.com/renovatebot/renovate)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/panda-coop/containers/badge)](https://scorecard.dev/viewer/?uri=github.com/panda-coop/containers)
+[![Signed with cosign](https://img.shields.io/badge/signed-cosign-2a9d8f?logo=sigstore&logoColor=white)](#verify-an-image)
 
 Public container images on Red Hat Universal Base Image 10, built from upstream releases and
 published to [quay.io/panda-coop](https://quay.io/organization/panda-coop). GitHub Actions
@@ -64,6 +65,17 @@ UBI rebuild, the shorter ones on upstream releases, `latest` on every release. P
 | Runtime | Non-root user; no configuration inside the image |
 | Labels | `name`, `vendor`, `summary`, `description`, `url`, `maintainer` are ours; inherited `com.redhat.*` labels are blanked; `org.opencontainers.image.*` carry source, licence, version and revision |
 | Licences | Upstream `LICENSE` and `NOTICE` in `/licenses/<software>/` |
+
+## Verify an image
+
+Every published image is signed keyless with [cosign](https://github.com/sigstore/cosign) by the
+GitHub Actions workflows of this repository, and carries an SBOM attestation.
+
+```sh
+cosign verify quay.io/panda-coop/ubi10-prometheus:3.15.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/panda-coop/containers/\.github/workflows/(publish|release|rebuild)\.yml@refs/heads/main$'
+```
 
 ## Updates
 
