@@ -1,0 +1,88 @@
+# ClickHouse on Red Hat UBI 10 minimal, from ClickHouse's official RPM repository (stable).
+# The repository key is in the build context (RPM-GPG-KEY-clickhouse, fingerprint
+# 3A9EA1193A97B548BE1457D48919F6BD2B48D754); microdnf refuses metadata it does not sign.
+
+# renovate: datasource=github-releases depName=ClickHouse/ClickHouse extractVersion=^v(?<version>.+)-stable$
+ARG VERSION=26.10.2.103
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# The base is pinned by digest in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY RPM-GPG-KEY-clickhouse /etc/pki/rpm-gpg/RPM-GPG-KEY-clickhouse
+COPY clickhouse.repo /etc/yum.repos.d/clickhouse.repo
+
+# UID/GID 101 as upstream's image, so existing volumes keep their ownership. The user exists
+# before the install: the server package's scriptlet (`clickhouse install`) chowns to it.
+# The ClickHouse packages are pinned to VERSION; gzip tracks the digest-pinned base. The docs
+# are kept for the install only: the LICENSE goes to /licenses, the rest (5 MB of changelogs) is
+# dropped. Packages resolve from the UBI repositories and clickhouse-stable only: RHEL
+# repositories a subscribed build host injects must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=clickhouse-stable) \
+    && echo 'clickhouse:x:101:' >> /etc/group \
+    && echo 'clickhouse:x:101:101:ClickHouse:/var/lib/clickhouse:/sbin/nologin' >> /etc/passwd \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 \
+         "clickhouse-common-static-${VERSION}" \
+         "clickhouse-server-${VERSION}" \
+         "clickhouse-client-${VERSION}" \
+         gzip \
+    && microdnf clean all \
+    && install -D -m 0644 -t /licenses/clickhouse /usr/share/doc/clickhouse-server/LICENSE \
+    && rm -rf /var/cache/yum /usr/share/doc/clickhouse-* \
+    && mkdir -p /var/lib/clickhouse /var/log/clickhouse-server /docker-entrypoint-initdb.d \
+    && chown -R 101:101 /var/lib/clickhouse /var/log/clickhouse-server \
+    && chmod 0700 /etc/clickhouse-server/config.d /etc/clickhouse-server/users.d
+
+COPY --chown=101:101 docker_related_config.xml /etc/clickhouse-server/config.d/
+COPY entrypoint.sh /entrypoint.sh
+
+ENV LANG=C.UTF-8 \
+    TZ=UTC \
+    CLICKHOUSE_CONFIG=/etc/clickhouse-server/config.xml
+
+WORKDIR /var/lib/clickhouse
+USER 101:101
+EXPOSE 8123 9000 9009
+VOLUME ["/var/lib/clickhouse"]
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-clickhouse" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="ClickHouse on Red Hat UBI 10 minimal" \
+      description="ClickHouse on Red Hat UBI 10 minimal. Official ClickHouse RPM repository, signed metadata, rebuilt on UBI updates." \
+      io.k8s.display-name="ClickHouse" \
+      io.k8s.description="ClickHouse column-oriented database server and client on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/clickhouse" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-clickhouse" \
+      org.opencontainers.image.description="ClickHouse on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-clickhouse" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
