@@ -1,0 +1,112 @@
+# Perses on Red Hat UBI 10 minimal, from the upstream release archive.
+# VERSION and both SHA256 values change together; the sha256 values come from the release's
+# perses_<version>_checksums.txt, and the build fails if the download does not match.
+#
+# The archive holds the perses server (the web UI is embedded in the binary), percli, LICENSE
+# and plugins-archive/ (the bundled panel and datasource plugins, unpacked at startup).
+
+# renovate: datasource=github-releases depName=perses/perses extractVersion=^v(?<version>.+)$
+ARG VERSION=0.54.0
+ARG SHA256_AMD64=450a387501162fec8e36f0f2628be02ad994fefa989ad1e72a8889ce5eb12a4c
+ARG SHA256_ARM64=51e7f66e6e5af4d70d3ab92da6b5ef757368d620ba718e934a4fec225112a353
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar and gzip track the digest-pinned base; pinning RPM versions would break on every UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+WORKDIR /tmp/perses
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="perses_${VERSION}_linux_${TARGETARCH}.tar.gz" \
+    && curl -fsSLo "${archive}" "https://github.com/perses/perses/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar -xzf "${archive}" \
+    && mkdir -p /out/bin /out/plugins-archive /out/plugins /out/data/perses \
+    && install -m 0755 perses percli /out/bin/ \
+    && install -m 0644 -t /out/plugins-archive plugins-archive/*.tar.gz \
+    && install -D -m 0644 -t /out/licenses LICENSE
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# mailcap provides /etc/mime.types, which upstream's image adds for the content types of
+# served UI and plugin files. It tracks the digest-pinned base, like the download stage.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs mailcap \
+    && microdnf clean all
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/perses/
+COPY --from=download /out/plugins-archive/ /etc/perses/plugins-archive/
+COPY --from=download --chown=65532:65532 /out/plugins/ /etc/perses/plugins/
+COPY --from=download --chown=65532:65532 /out/data/ /
+
+WORKDIR /perses
+USER 65532:65532
+EXPOSE 8080
+VOLUME ["/perses"]
+ENTRYPOINT ["/bin/perses"]
+CMD ["--config=/etc/perses/config.yaml", \
+     "--log.level=error"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-perses" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Perses on Red Hat UBI 10 minimal" \
+      description="Perses on Red Hat UBI 10 minimal. Upstream release archive, checksum-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Perses" \
+      io.k8s.description="Perses dashboards for Prometheus, Loki and Tempo data, on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/perses" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-perses" \
+      org.opencontainers.image.description="Perses on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-perses" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
