@@ -1,0 +1,94 @@
+# PostgreSQL on Red Hat UBI 10 minimal, from the signed PGDG EL 10 RPMs.
+# VERSION is the PostgreSQL x.y; the RPM release (for example 4PGDG.rhel10.2) follows the PGDG
+# repository. Packages resolve from the UBI repositories and pgdg18 only: every other repository,
+# including RHEL repositories a subscribed build host injects, is disabled for the install.
+
+# renovate: datasource=docker depName=postgres extractVersion=^(?<version>18\.\d+)$
+ARG VERSION=18.6
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# The base is pinned by digest in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY PGDG-RPM-GPG-KEY-RHEL /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+COPY pgdg.repo /etc/yum.repos.d/pgdg.repo
+
+# The server package is PGDG's; the rest track the digest-pinned base, and pinning their RPM
+# versions would break on every UBI update. No llvmjit, no PostGIS. gzip, xz and zstd read
+# compressed /docker-entrypoint-initdb.d/*.sql.{gz,xz,zst}; util-linux-core provides setpriv.
+# PGDG ships COPYRIGHT as %doc, so postgresql18 alone is reinstalled with its docs to get it.
+# The sample config initdb copies listens on all addresses and logs to stderr (PGDG turns
+# logging_collector on, which writes log files under PGDATA instead).
+# The volume is /var/lib/pgsql/data and the cluster its userdata/ subdirectory, the RHEL layout.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=pgdg18) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs \
+      "postgresql18-server-${VERSION}" "postgresql18-contrib-${VERSION}" \
+      tzdata gzip xz zstd util-linux-core \
+    && microdnf -y reinstall "${repos[@]}" "postgresql18-${VERSION}" \
+    && microdnf clean all \
+    && rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' postgresql18-server | grep -q "^postgresql18-server-${VERSION}-.*PGDG" \
+    && install -D -m 0644 -t /licenses/postgresql /usr/share/doc/postgresql18/COPYRIGHT \
+    && sed -ri "s!^#?(listen_addresses)\s*=\s*\S+.*!\1 = '*'!" /usr/pgsql-18/share/postgresql.conf.sample \
+    && sed -ri "s!^#?(logging_collector)\s*=\s*\S+!\1 = off!" /usr/pgsql-18/share/postgresql.conf.sample \
+    && grep -qF "listen_addresses = '*'" /usr/pgsql-18/share/postgresql.conf.sample \
+    && grep -qF "logging_collector = off" /usr/pgsql-18/share/postgresql.conf.sample \
+    && install -d -o postgres -g postgres -m 0700 /var/lib/pgsql/data \
+    && install -d -o postgres -g postgres -m 3777 /run/postgresql \
+    && install -d -m 0755 /docker-entrypoint-initdb.d
+
+COPY --chmod=0755 postgresql-entrypoint.sh /usr/local/bin/postgresql-entrypoint.sh
+
+ENV PG_MAJOR=18 \
+    PATH=/usr/pgsql-18/bin:$PATH \
+    PGDATA=/var/lib/pgsql/data/userdata \
+    LANG=C.UTF-8
+
+USER 26:26
+EXPOSE 5432
+VOLUME ["/var/lib/pgsql/data"]
+ENTRYPOINT ["postgresql-entrypoint.sh"]
+# SIGINT is PostgreSQL's fast shutdown: SIGTERM (smart) waits for clients to disconnect and
+# usually ends in SIGKILL.
+STOPSIGNAL SIGINT
+CMD ["postgres"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-postgresql" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="PostgreSQL on Red Hat UBI 10 minimal" \
+      description="PostgreSQL on Red Hat UBI 10 minimal. PGDG EL 10 packages, signature-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="PostgreSQL" \
+      io.k8s.description="PostgreSQL object-relational database on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/postgresql" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-postgresql" \
+      org.opencontainers.image.description="PostgreSQL on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-postgresql" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="PostgreSQL" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
