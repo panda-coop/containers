@@ -1,0 +1,111 @@
+# Apache Kafka on Red Hat UBI 10 OpenJDK 25 runtime, from the upstream binary tarball.
+# VERSION and SHA512 change together; SHA512 is the value of the release's .sha512 file, and the
+# build also verifies the .asc signature against the Apache Kafka KEYS file. The tarball is
+# architecture independent, so one checksum covers every platform.
+
+# renovate: datasource=maven depName=org.apache.kafka:kafka_2.13
+ARG VERSION=4.4.0
+ARG SCALA_VERSION=2.13
+ARG SHA512=f5ceba8a265ab6bb2d68362b1f6859a95e15d60ef92ba83b43fdf065b557dc18e98d6383c15b9977320e25b3a2c8b6f11decb17b0fa6c0f163423793a0eb95cb
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/openjdk-25-runtime:1.24@sha256:e898c4ad1c8cfb5afee86917906356226956813733ebc27bbf33f762bb3b8f08
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar, gzip and gnupg2 track the digest-pinned base; pinning RPM versions would break on every
+# UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip gnupg2 \
+    && microdnf clean all
+
+ARG VERSION
+ARG SCALA_VERSION
+ARG SHA512
+
+# downloads.apache.org carries only current releases; archive.apache.org keeps every release but
+# is slow, so it is the fallback once a pinned version has been superseded.
+WORKDIR /tmp/kafka
+RUN archive="kafka_${SCALA_VERSION}-${VERSION}.tgz" \
+    && for file in "${archive}" "${archive}.asc"; do \
+         curl -fsSLo "${file}" "https://downloads.apache.org/kafka/${VERSION}/${file}" \
+         || curl -fsSLo "${file}" "https://archive.apache.org/dist/kafka/${VERSION}/${file}"; \
+       done \
+    && curl -fsSLo KEYS https://downloads.apache.org/kafka/KEYS \
+    && echo "${SHA512}  ${archive}" | sha512sum -c - \
+    && GNUPGHOME="$(mktemp -d)" \
+    && export GNUPGHOME \
+    && gpg --batch --quiet --import KEYS \
+    && gpg --batch --verify "${archive}.asc" "${archive}" \
+    && mkdir -p /out/kafka /out/licenses \
+    && tar -xzf "${archive}" --strip-components=1 --no-same-owner -C /out/kafka \
+    && cp -r /out/kafka/LICENSE /out/kafka/NOTICE /out/kafka/licenses /out/licenses/
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/kafka/ /opt/kafka/
+COPY --from=download /out/licenses/ /licenses/kafka/
+
+# Owned by root, except what the broker writes: application logs and the data volume. Group 0
+# can write too, for arbitrary UIDs. The base runs as its default user 185.
+USER root
+RUN install -d -o 185 -g 0 -m 0775 /opt/kafka/logs /var/lib/kafka /var/lib/kafka/data
+
+ENV PATH="/opt/kafka/bin:${PATH}"
+
+WORKDIR /opt/kafka
+USER 185:0
+EXPOSE 9092 9093
+VOLUME ["/var/lib/kafka/data"]
+ENTRYPOINT ["kafka-server-start.sh"]
+CMD ["/opt/kafka/config/server.properties"]
+
+# Our identity over the inherited UBI and OpenJDK labels; com.redhat.* blanked, and usage,
+# vcs-url and the documentation label repointed at this repository. The base digest label is what
+# the scheduled rebuild compares against the current UBI digest. DL3048: the inherited key
+# com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-kafka" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Apache Kafka in KRaft mode on Red Hat UBI 10 OpenJDK runtime" \
+      description="Apache Kafka in KRaft mode on Red Hat UBI 10 OpenJDK runtime. Upstream release tarball, sha512- and GPG-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Apache Kafka" \
+      io.k8s.description="Apache Kafka in KRaft mode on Red Hat UBI 10 OpenJDK 25 runtime." \
+      io.openshift.tags="kafka" \
+      io.openshift.expose-services="9092:kafka" \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/kafka" \
+      usage="https://github.com/panda-coop/containers/tree/main/kafka" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      vcs-url="https://github.com/panda-coop/containers" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-kafka" \
+      org.opencontainers.image.description="Apache Kafka in KRaft mode on Red Hat UBI 10 OpenJDK runtime. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.documentation="https://github.com/panda-coop/containers/tree/main/kafka" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-kafka" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
