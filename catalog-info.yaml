@@ -1,0 +1,27 @@
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: containers
+  title: Panda Coop container images
+  description: Public images on Red Hat UBI 10 built from upstream releases, published to quay.io/panda-coop
+  annotations:
+    github.com/project-slug: panda-coop/containers
+  links:
+    - url: https://quay.io/organization/panda-coop
+      title: Quay organization
+spec:
+  owner: guests
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: containers
+  title: panda-coop/containers
+  description: Containerfiles, build tasks and the GitHub Actions release pipeline for the ubi10-* images
+  annotations:
+    github.com/project-slug: panda-coop/containers
+spec:
+  type: container-image
+  owner: guests
+  lifecycle: experimental
+  system: containers

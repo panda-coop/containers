@@ -1,0 +1,8 @@
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local scratch
+tmp/
+*.log
