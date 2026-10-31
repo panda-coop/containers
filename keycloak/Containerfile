@@ -1,0 +1,120 @@
+# Keycloak on Red Hat UBI 10 OpenJDK 25
+# runtime, a port of upstream's quarkus/container/Dockerfile, from the upstream release tarball.
+# VERSION and SHA1 change together; SHA1 is the release's keycloak-<version>.tar.gz.sha1, and
+# the build fails if the download does not match it or is not signed by GPG_FINGERPRINT. The
+# key is keycloak-2.asc in the build context, from https://www.keycloak.org/keys/keycloak-2.asc.
+
+# renovate: datasource=github-releases depName=keycloak/keycloak
+ARG VERSION=26.8.1
+ARG SHA1=f55701155746ed88e12b3e670d5fa03589e3013e
+# Keycloak Bot <keycloak.bot@gmail.com>, listed on https://www.keycloak.org/keys; expires 2027-02-12.
+ARG GPG_FINGERPRINT=861AB50E8CC6611FB6BC01A6B8F12EA26FD6EEBA
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/openjdk-25-runtime:1.24@sha256:e898c4ad1c8cfb5afee86917906356226956813733ebc27bbf33f762bb3b8f08
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar, gzip and gnupg2 track the digest-pinned base; pinning RPM versions would break on every
+# UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip gnupg2 \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA1
+ARG GPG_FINGERPRINT
+
+WORKDIR /tmp/keycloak
+COPY keycloak-2.asc ./
+RUN dist="keycloak-${VERSION}.tar.gz" \
+    && url="https://github.com/keycloak/keycloak/releases/download/${VERSION}/${dist}" \
+    && curl -fsSLo "${dist}" "${url}" \
+    && curl -fsSLo "${dist}.asc" "${url}.asc" \
+    && echo "${SHA1}  ${dist}" | sha1sum -c - \
+    && GNUPGHOME="$(mktemp -d)" && export GNUPGHOME \
+    && gpg --batch --quiet --import keycloak-2.asc \
+    && gpg --batch --status-fd 1 --verify "${dist}.asc" "${dist}" \
+       | grep -Eq "^\[GNUPG:\] VALIDSIG .* ${GPG_FINGERPRINT}\$" \
+    && tar -xzf "${dist}" \
+    && mv "keycloak-${VERSION}" /opt/keycloak \
+    && mkdir -p /opt/keycloak/data \
+    && chmod -R g+rwX /opt/keycloak \
+    && install -D -m 0644 -t /out/licenses /opt/keycloak/LICENSE.txt
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# en_US.UTF-8 as upstream: the runtime image has only C.utf8 (glibc-minimal-langpack). User
+# 1000, group 0, as upstream, so upstream's derived-image recipes and data volumes carry over;
+# the base's own user 185 (default) is left in place, unused.
+USER root
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs glibc-langpack-en \
+    && microdnf clean all \
+    && echo "keycloak:x:0:root" >> /etc/group \
+    && echo "keycloak:x:1000:0:keycloak user:/opt/keycloak:/sbin/nologin" >> /etc/passwd
+
+COPY --from=download --chown=1000:0 /opt/keycloak /opt/keycloak
+COPY --from=download /out/licenses/ /licenses/keycloak/
+
+ENV LANG=en_US.UTF-8 \
+    KC_RUN_IN_CONTAINER=true
+
+USER 1000
+WORKDIR /opt/keycloak
+EXPOSE 8080 8443 9000
+ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
+
+# Our identity over the inherited UBI and OpenJDK image labels; com.redhat.* blanked. The base
+# digest label is what the scheduled rebuild compares against the current base digest. DL3048:
+# the inherited key com.redhat.license_terms has an underscore, and blanking it needs that
+# exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-keycloak" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Keycloak on Red Hat UBI 10 OpenJDK 25 runtime" \
+      description="Keycloak on Red Hat UBI 10 OpenJDK 25 runtime. Upstream release tarball, signature-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Keycloak" \
+      io.k8s.description="Keycloak identity and access management server on Red Hat UBI 10 OpenJDK 25 runtime." \
+      io.openshift.tags="keycloak security identity" \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/keycloak" \
+      usage="" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      vcs-url="" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-keycloak" \
+      org.opencontainers.image.description="Keycloak on Red Hat UBI 10 OpenJDK 25 runtime. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.documentation="https://www.keycloak.org/documentation" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-keycloak" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
