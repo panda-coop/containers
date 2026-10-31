@@ -1,0 +1,64 @@
+name: build
+
+# Pull requests build every changed image; nothing is pushed.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      images: ${{ steps.changed.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: echo "images=$(.github/scripts/changed-images.sh "$BASE_SHA")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.images != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.changes.outputs.images) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: hadolint
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: >-
+          podman run --rm -v "$PWD:/repo:Z" -w /repo
+          ghcr.io/hadolint/hadolint:v2.14.0@sha256:27086352fd5e1907ea2b934eb1023f217c5ae087992eb59fde121dce9c9ff21e
+          hadolint --config .hadolint.yaml "$IMAGE/Containerfile"
+      - name: build
+        env:
+          IMAGE: ${{ matrix.image }}
+          REVISION: ${{ github.event.pull_request.head.sha }}
+        # Docker format: the OCI format drops SHELL, and the RUN steps rely on bash -o pipefail.
+        run: >-
+          podman build --format docker
+          --build-arg RELEASE=pr
+          --build-arg REVISION="$REVISION"
+          --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          -t "localhost/ubi10-$IMAGE:pr"
+          -f "$IMAGE/Containerfile" "$IMAGE"
+      - name: labels
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: podman image inspect "localhost/ubi10-$IMAGE:pr" | jq '.[0].Config.Labels'
