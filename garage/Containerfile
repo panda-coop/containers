@@ -1,0 +1,94 @@
+# Garage on Red Hat UBI 10 micro, from the upstream static (musl) release binary.
+# VERSION and both SHA256 values change together. Upstream publishes no checksums: the sha256
+# values were computed from the first download of each binary, and the build fails if a later
+# download does not match.
+
+# Garage releases are tags on git.deuxfleurs.fr (Forgejo, Gitea-compatible API).
+# renovate: datasource=gitea-tags depName=Deuxfleurs/garage registryUrl=https://git.deuxfleurs.fr extractVersion=^v(?<version>.+)$
+ARG VERSION=2.5.0
+ARG SHA256_AMD64=2ff667286217cd73ebcb1c03af993822365000441dfe31a80cb64c5189a9dea8
+ARG SHA256_ARM64=69b6040cef428b993500c17dd0d0c1240acf2f3f667b9b05ceba4b9660db4e8c
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+WORKDIR /tmp/garage
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}"; target=x86_64-unknown-linux-musl ;; \
+      arm64) sha256="${SHA256_ARM64}"; target=aarch64-unknown-linux-musl ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSLo garage "https://garagehq.deuxfleurs.fr/_releases/v${VERSION}/${target}/garage" \
+    && echo "${sha256}  garage" | sha256sum -c - \
+    && curl -fsSLO "https://git.deuxfleurs.fr/Deuxfleurs/garage/raw/tag/v${VERSION}/LICENSE" \
+    && install -D -m 0755 garage /out/bin/garage \
+    && install -D -m 0644 -t /out/licenses LICENSE \
+    && mkdir -p /out/link && ln -s /usr/bin/garage /out/link/garage \
+    && mkdir -p /out/garage/meta /out/garage/data \
+    && chmod 0775 /out/garage /out/garage/meta /out/garage/data
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/link/ /
+COPY --from=download /out/licenses/ /licenses/garage/
+COPY --from=download --chown=65534:65534 /out/garage/ /var/lib/garage/
+
+ENV RUST_BACKTRACE=1 \
+    RUST_LOG=garage=info
+
+WORKDIR /var/lib/garage
+USER 65534:65534
+EXPOSE 3900 3901 3902 3903
+VOLUME ["/var/lib/garage/meta", "/var/lib/garage/data"]
+ENTRYPOINT ["/usr/bin/garage"]
+CMD ["server"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# AGPL-3.0: org.opencontainers.image.source points at the upstream tag the binary is built from.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-garage" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Garage S3-compatible object storage on Red Hat UBI 10 micro" \
+      description="Garage S3-compatible object storage on Red Hat UBI 10 micro. Upstream static release binary, checksum-verified, rebuilt on UBI updates. AGPL-3.0, source: upstream tag in the image labels." \
+      io.k8s.display-name="Garage" \
+      io.k8s.description="Garage S3-compatible object storage on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/garage" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-garage" \
+      org.opencontainers.image.description="Garage S3-compatible object storage on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://git.deuxfleurs.fr/Deuxfleurs/garage/src/tag/v${VERSION}" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-garage" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="AGPL-3.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
