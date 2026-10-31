@@ -60,10 +60,12 @@ ARG BASE_IMAGE
 COPY --from=download /out/kafka/ /opt/kafka/
 COPY --from=download /out/licenses/ /licenses/kafka/
 
-# Owned by root, except what the broker writes: application logs and the data volume. Group 0
-# can write too, for arbitrary UIDs. The base runs as its default user 185.
+# Owned by root, except what the broker writes: application logs, the data volume and the
+# server.properties the entrypoint renders. Group 0 can write too, for arbitrary UIDs. The base
+# runs as its default user 185.
 USER root
-RUN install -d -o 185 -g 0 -m 0775 /opt/kafka/logs /var/lib/kafka /var/lib/kafka/data
+RUN install -d -o 185 -g 0 -m 0775 /opt/kafka/logs /var/lib/kafka /var/lib/kafka/data /etc/kafka
+COPY --chmod=0755 entrypoint.sh /usr/local/bin/kafka-entrypoint
 
 ENV PATH="/opt/kafka/bin:${PATH}"
 
@@ -71,8 +73,8 @@ WORKDIR /opt/kafka
 USER 185:0
 EXPOSE 9092 9093
 VOLUME ["/var/lib/kafka/data"]
-ENTRYPOINT ["kafka-server-start.sh"]
-CMD ["/opt/kafka/config/server.properties"]
+ENTRYPOINT ["/usr/local/bin/kafka-entrypoint"]
+CMD []
 
 # Our identity over the inherited UBI and OpenJDK labels; com.redhat.* blanked, and usage,
 # vcs-url and the documentation label repointed at this repository. The base digest label is what
