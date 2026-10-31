@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "ignorePresets": [
+    "workarounds:supportRedHatImageVersion"
+  ],
+  "enabledManagers": [
+    "custom.regex"
+  ],
+  "packageRules": [
+    {
+      "description": "ClickHouse versions are year.month.patch.build, four parts, which semver cannot order",
+      "matchDepNames": [
+        "ClickHouse/ClickHouse"
+      ],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)$"
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Upstream version: the `# renovate:` comment directly above `ARG VERSION=` in a Containerfile; registryUrl is optional, for a datasource off its default host",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)Containerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: registryUrl=(?<registryUrl>\\S+))?(?: extractVersion=(?<extractVersion>\\S+))?\\s*\\nARG VERSION=(?<currentValue>\\S+)"
+      ],
+      "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^v?(?<version>.+)${{/if}}"
+    },
+    {
+      "description": "UBI bases: `ARG BASE_IMAGE=` / `ARG DOWNLOAD_IMAGE=` pinned as repo:x.y@digest. Docker versioning, not the preset's redhat versioning, keeps the floating x.y tag that the weekly rebuild resolves",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)Containerfile$/"
+      ],
+      "matchStrings": [
+        "ARG (?:BASE|DOWNLOAD)_IMAGE=(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ]
+}
