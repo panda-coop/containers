@@ -1,0 +1,10 @@
+# ClickHouse's stable channel, as packages.clickhouse.com/rpm/clickhouse.repo, with the key
+# from the build context. The repository metadata is signed (repo_gpgcheck); the packages
+# themselves are not (gpgcheck=0), as upstream publishes them.
+[clickhouse-stable]
+name=ClickHouse - Stable Repository
+baseurl=https://packages.clickhouse.com/rpm/stable/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-clickhouse
+gpgcheck=0
+repo_gpgcheck=1
+enabled=1

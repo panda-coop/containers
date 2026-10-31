@@ -1,0 +1,6 @@
+<clickhouse>
+    <!-- As upstream's image: listen on every address, so other containers and the host reach the server. -->
+    <listen_host>::</listen_host>
+    <listen_host>0.0.0.0</listen_host>
+    <listen_try>1</listen_try>
+</clickhouse>
