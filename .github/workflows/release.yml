@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # GitHub runs an explicit `bash` as `bash --noprofile --norc -eo pipefail`; the implicit
+    # default is only `bash -e`, which lets a failing command inside a pipe go unnoticed.
+    shell: bash
+
 jobs:
   changes:
     runs-on: ubuntu-24.04

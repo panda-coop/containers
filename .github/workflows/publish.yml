@@ -23,6 +23,12 @@ env:
   REGISTRY: quay.io/panda-coop
   ROBOT: panda-coop+github_containers
 
+defaults:
+  run:
+    # GitHub runs an explicit `bash` as `bash --noprofile --norc -eo pipefail`; the implicit
+    # default is only `bash -e`, which lets a failing command inside a pipe go unnoticed.
+    shell: bash
+
 jobs:
   publish:
     runs-on: ubuntu-24.04
@@ -83,7 +89,8 @@ jobs:
           echo "::add-mask::$oidc"
           token="$(curl -fsS -u "$ROBOT:$oidc" https://quay.io/oauth2/federation/robot/token | jq -r .token)"
           echo "::add-mask::$token"
-          test -n "$token" && test "$token" != null
+          test -n "$token"
+          test "$token" != null
           podman login -u "$ROBOT" --password-stdin quay.io <<< "$token"
 
       - name: push
