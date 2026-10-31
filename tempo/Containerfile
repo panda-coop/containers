@@ -1,0 +1,104 @@
+# Grafana Tempo on Red Hat UBI 10 micro, from the upstream release binary.
+# VERSION and both SHA256 values change together; the sha256 values come from the release's
+# SHA256SUMS, and the build fails if the download does not match.
+
+# renovate: datasource=github-releases depName=grafana/tempo extractVersion=^v(?<version>.+)$
+ARG VERSION=3.1.0
+ARG SHA256_AMD64=9604ab46348270a42954801bba91cd65335e16568ef886bdf71b988fdcb7ac4e
+ARG SHA256_ARM64=e4092dcf2b93e141be77e300b539f6c5cceefa9803417d7d635c6797d9bc19ad
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar, gzip and tzdata track the digest-pinned base; pinning RPM versions would break on every
+# UBI update. tzdata and the base's CA bundle go into the image: ubi-micro has neither, and
+# upstream's image ships both (object storage is HTTPS).
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip tzdata \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+# The tarball carries LICENSE; LICENSING.md (which lists the Apache-2.0 directories) comes from
+# the release tag. Only `tempo` is installed, as upstream; tempo-cli and tempo-query are not.
+WORKDIR /tmp/tempo
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="tempo_${VERSION}_linux_${TARGETARCH}.tar.gz" \
+    && curl -fsSLo "${archive}" "https://github.com/grafana/tempo/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar -xzf "${archive}" \
+    && curl -fsSLO "https://raw.githubusercontent.com/grafana/tempo/v${VERSION}/LICENSING.md" \
+    && mkdir -p /out/bin /out/data/tempo \
+    && chmod 0700 /out/data/tempo \
+    && install -m 0755 tempo /out/bin/ \
+    && install -D -m 0644 -t /out/licenses LICENSE LICENSING.md \
+    && install -D -m 0644 /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /out/system/etc/pki/tls/certs/ca-bundle.crt \
+    && mkdir -p /out/system/usr/share \
+    && cp -a /usr/share/zoneinfo /out/system/usr/share/ \
+    && ln -s usr/bin/tempo /out/system/tempo
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/tempo/
+COPY --from=download /out/system/ /
+COPY --from=download --chown=10001:10001 /out/data/ /var/
+
+# Upstream's entrypoint is /tempo; here it is a symlink to /usr/bin/tempo. Upstream declares no
+# port, volume or command.
+USER 10001:10001
+ENTRYPOINT ["/tempo"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. AGPL-3.0: the source
+# label points at the upstream tag the binary was built from. DL3048: the inherited key
+# com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-tempo" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Grafana Tempo on Red Hat UBI 10 micro" \
+      description="Grafana Tempo on Red Hat UBI 10 micro. Upstream release binary, checksum-verified, rebuilt on UBI updates. AGPL-3.0, source: upstream tag in the image labels." \
+      io.k8s.display-name="Tempo" \
+      io.k8s.description="Grafana Tempo distributed tracing backend on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/tempo" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-tempo" \
+      org.opencontainers.image.description="Grafana Tempo on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/grafana/tempo/tree/v${VERSION}" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-tempo" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
