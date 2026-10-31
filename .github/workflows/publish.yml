@@ -1,0 +1,101 @@
+name: publish
+
+# Builds one image and pushes it to quay.io/panda-coop/ubi10-<image>. Called by release.yml.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Image directory
+        required: true
+        type: string
+      base-image:
+        description: Overrides ARG BASE_IMAGE (repo:tag@digest); empty keeps the Containerfile pin
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: quay.io/panda-coop
+  ROBOT: panda-coop+github_containers
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    # One release of an image at a time, so two releases never share an epoch (ADR 0001).
+    concurrency:
+      group: publish-${{ inputs.image }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: release
+        id: release
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          version="$(sed -n 's/^ARG VERSION=//p' "$IMAGE/Containerfile")"
+          epoch="$(date -u +%s)"
+          .github/scripts/image-tags.sh --self-test >/dev/null
+          {
+            echo "version=$version"
+            echo "epoch=$epoch"
+            echo "created=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)"
+            echo "tags=$(.github/scripts/image-tags.sh "$version" "$epoch" | paste -sd ' ' -)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: build
+        env:
+          IMAGE: ${{ inputs.image }}
+          BASE_IMAGE: ${{ inputs.base-image }}
+          EPOCH: ${{ steps.release.outputs.epoch }}
+          CREATED: ${{ steps.release.outputs.created }}
+          TAGS: ${{ steps.release.outputs.tags }}
+          REVISION: ${{ github.sha }}
+        run: |
+          args=(--build-arg "RELEASE=$EPOCH" --build-arg "REVISION=$REVISION" --build-arg "CREATED=$CREATED")
+          if [ -n "$BASE_IMAGE" ]; then
+            args+=(--build-arg "BASE_IMAGE=$BASE_IMAGE")
+          fi
+          for tag in $TAGS; do
+            args+=(-t "$REGISTRY/ubi10-$IMAGE:$tag")
+          done
+          # Docker format: the OCI format drops SHELL, and the RUN steps rely on bash -o pipefail.
+          podman build --format docker "${args[@]}" -f "$IMAGE/Containerfile" "$IMAGE"
+
+      - name: quay login
+        run: |
+          # podman writes the Docker-format auth file that cosign and syft read.
+          mkdir -p "$HOME/.docker"
+          echo "REGISTRY_AUTH_FILE=$HOME/.docker/config.json" >> "$GITHUB_ENV"
+          export REGISTRY_AUTH_FILE="$HOME/.docker/config.json"
+          oidc="$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=quay" | jq -r .value)"
+          echo "::add-mask::$oidc"
+          token="$(curl -fsS -u "$ROBOT:$oidc" https://quay.io/oauth2/federation/robot/token | jq -r .token)"
+          echo "::add-mask::$token"
+          test -n "$token" && test "$token" != null
+          podman login -u "$ROBOT" --password-stdin quay.io <<< "$token"
+
+      - name: push
+        id: push
+        env:
+          IMAGE: ${{ inputs.image }}
+          TAGS: ${{ steps.release.outputs.tags }}
+        run: |
+          read -r first _ <<< "$TAGS"
+          # The immutable x.y.z-<epoch> tag goes first; the floating tags follow it.
+          podman push --digestfile digest "$REGISTRY/ubi10-$IMAGE:$first"
+          for tag in $TAGS; do
+            [ "$tag" = "$first" ] || podman push "$REGISTRY/ubi10-$IMAGE:$tag"
+          done
+          echo "ref=$REGISTRY/ubi10-$IMAGE@$(cat digest)" >> "$GITHUB_OUTPUT"
+          echo "pushed $REGISTRY/ubi10-$IMAGE@$(cat digest): $TAGS" >> "$GITHUB_STEP_SUMMARY"
