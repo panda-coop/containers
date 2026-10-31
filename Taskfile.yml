@@ -1,6 +1,9 @@
 # yaml-language-server: $schema=https://taskfile.dev/schema.json
 version: '3'
 
+# IMAGE is the image directory, e.g. `task build IMAGE=prometheus`; the local tag is
+# localhost/ubi10-<dir>:dev.
+
 tasks:
   default:
     desc: List tasks
@@ -13,3 +16,51 @@ tasks:
     cmds:
       # Include untracked files so the gate is effective before they are committed.
       - prek run --files $(git ls-files --cached --others --exclude-standard)
+
+  version:
+    desc: Print the upstream version an image packages (IMAGE=<dir>)
+    silent: true
+    requires:
+      vars: [IMAGE]
+    cmds:
+      - sed -n 's/^ARG VERSION=//p' {{.IMAGE}}/Containerfile
+
+  build:
+    desc: Build an image locally as localhost/ubi10-<dir>:dev (IMAGE=<dir>)
+    requires:
+      vars: [IMAGE]
+    vars:
+      VERSION:
+        sh: sed -n 's/^ARG VERSION=//p' {{.IMAGE}}/Containerfile 2>/dev/null || true
+      REVISION:
+        sh: git rev-parse HEAD 2>/dev/null || echo unknown
+      RELEASE: '{{.RELEASE | default "dev"}}'
+    preconditions:
+      - sh: test -f {{.IMAGE}}/Containerfile
+        msg: '{{.IMAGE}}/Containerfile not found'
+      - sh: test -n "{{.VERSION}}"
+        msg: 'no ARG VERSION=<x.y.z> line in {{.IMAGE}}/Containerfile'
+    cmds:
+      # Docker format: the OCI format drops SHELL, and the RUN steps rely on bash -o pipefail.
+      - >-
+        podman build --format docker
+        --build-arg RELEASE={{.RELEASE}}
+        --build-arg REVISION={{.REVISION}}
+        --build-arg CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        -t localhost/ubi10-{{.IMAGE}}:dev
+        -f {{.IMAGE}}/Containerfile {{.IMAGE}}
+      - echo "built localhost/ubi10-{{.IMAGE}}:dev ({{.VERSION}})"
+
+  run:
+    desc: Run the local image; arguments after -- go to the entrypoint (IMAGE=<dir>)
+    requires:
+      vars: [IMAGE]
+    cmds:
+      - podman run --rm localhost/ubi10-{{.IMAGE}}:dev {{.CLI_ARGS}}
+
+  inspect:
+    desc: Show the local image's labels, user, entrypoint and command (IMAGE=<dir>)
+    requires:
+      vars: [IMAGE]
+    cmds:
+      - podman image inspect localhost/ubi10-{{.IMAGE}}:dev | jq '.[0].Config | {Labels, User, Entrypoint, Cmd, ExposedPorts, Volumes}'
