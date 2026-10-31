@@ -5,6 +5,7 @@
 [![Weekly rebuild](https://github.com/panda-coop/containers/actions/workflows/rebuild.yml/badge.svg)](https://github.com/panda-coop/containers/actions/workflows/rebuild.yml)
 [![License](https://img.shields.io/github/license/panda-coop/containers)](LICENSE)
 [![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen?logo=renovatebot)](https://github.com/renovatebot/renovate)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/panda-coop/containers/badge)](https://scorecard.dev/viewer/?uri=github.com/panda-coop/containers)
 
 Public container images on Red Hat Universal Base Image 10, built from upstream releases and
 published to [quay.io/panda-coop](https://quay.io/organization/panda-coop). GitHub Actions
