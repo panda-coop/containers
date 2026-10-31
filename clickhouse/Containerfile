@@ -45,6 +45,7 @@ RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10
     && chmod 0700 /etc/clickhouse-server/config.d /etc/clickhouse-server/users.d
 
 COPY --chown=101:101 docker_related_config.xml /etc/clickhouse-server/config.d/
+COPY entrypoint.sh /entrypoint.sh
 
 ENV LANG=C.UTF-8 \
     TZ=UTC \
@@ -54,8 +55,7 @@ WORKDIR /var/lib/clickhouse
 USER 101:101
 EXPOSE 8123 9000 9009
 VOLUME ["/var/lib/clickhouse"]
-ENTRYPOINT ["/usr/bin/clickhouse-server"]
-CMD ["--config-file=/etc/clickhouse-server/config.xml"]
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
 # what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
