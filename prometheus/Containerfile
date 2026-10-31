@@ -1,0 +1,102 @@
+# Prometheus on Red Hat UBI 10 micro, from the upstream release binary.
+# VERSION and both SHA256 values change together; the sha256 values come from the release's
+# sha256sums.txt, and the build fails if the download does not match.
+
+# renovate: datasource=github-releases depName=prometheus/prometheus extractVersion=^v(?<version>.+)$
+ARG VERSION=3.15.0
+ARG SHA256_AMD64=2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0
+ARG SHA256_ARM64=f1f90ec08e849d494ca66c611470afc50192f0355f1a61c33f2cbde02d067823
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar, gzip and tzdata track the digest-pinned base; pinning RPM versions would break on every
+# UBI update. tzdata and the base's CA bundle go into the image: ubi-micro has neither (scrape
+# targets, remote_write and service discovery can be HTTPS; Go time zone lookups need zoneinfo).
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip tzdata \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+WORKDIR /tmp/prometheus
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="prometheus-${VERSION}.linux-${TARGETARCH}.tar.gz" \
+    && curl -fsSLo "${archive}" "https://github.com/prometheus/prometheus/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar -xzf "${archive}" --strip-components=1 \
+    && mkdir -p /out/bin /out/root/prometheus \
+    && chmod 0775 /out/root/prometheus \
+    && install -m 0755 prometheus promtool /out/bin/ \
+    && install -D -m 0644 -t /out/licenses LICENSE NOTICE \
+    && install -D -m 0644 /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /out/system/etc/pki/tls/certs/ca-bundle.crt \
+    && mkdir -p /out/system/usr/share \
+    && cp -a /usr/share/zoneinfo /out/system/usr/share/
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/prometheus/
+COPY --from=download /out/system/ /
+COPY --from=download --chown=65534:65534 /out/root/ /
+
+WORKDIR /prometheus
+USER 65534:65534
+EXPOSE 9090
+VOLUME ["/prometheus"]
+ENTRYPOINT ["/bin/prometheus"]
+CMD ["--config.file=/etc/prometheus/prometheus.yml", \
+     "--storage.tsdb.path=/prometheus"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-prometheus" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Prometheus on Red Hat UBI 10 micro" \
+      description="Prometheus monitoring system and time series database, upstream release binary, checksum-verified, on Red Hat UBI 10 micro." \
+      io.k8s.display-name="Prometheus" \
+      io.k8s.description="Prometheus monitoring system and time series database on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/prometheus" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-prometheus" \
+      org.opencontainers.image.description="Prometheus on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-prometheus" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
