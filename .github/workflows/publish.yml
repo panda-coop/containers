@@ -1,6 +1,7 @@
 name: publish
 
-# Builds one image and pushes it to quay.io/panda-coop/ubi10-<image>. Called by release.yml.
+# Builds one image and pushes it to quay.io/panda-coop/ubi10-<image>. Called by release.yml
+# and rebuild.yml.
 
 on:
   workflow_call:
