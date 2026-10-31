@@ -47,6 +47,8 @@ RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10
     && install -d -o postgres -g postgres -m 3777 /run/postgresql \
     && install -d -m 0755 /docker-entrypoint-initdb.d
 
+COPY --chmod=0755 postgresql-entrypoint.sh /usr/local/bin/postgresql-entrypoint.sh
+
 ENV PG_MAJOR=18 \
     PATH=/usr/pgsql-18/bin:$PATH \
     PGDATA=/var/lib/pgsql/data/userdata \
@@ -55,6 +57,7 @@ ENV PG_MAJOR=18 \
 USER 26:26
 EXPOSE 5432
 VOLUME ["/var/lib/pgsql/data"]
+ENTRYPOINT ["postgresql-entrypoint.sh"]
 # SIGINT is PostgreSQL's fast shutdown: SIGTERM (smart) waits for clients to disconnect and
 # usually ends in SIGKILL.
 STOPSIGNAL SIGINT
