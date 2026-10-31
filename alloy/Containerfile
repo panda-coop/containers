@@ -1,0 +1,113 @@
+# Grafana Alloy on Red Hat UBI 10 minimal, from the upstream release binary.
+# VERSION and both SHA256 values change together; the sha256 values come from the release's
+# SHA256SUMS, and the build fails if the download does not match.
+#
+# ubi-minimal, not ubi-micro: the release binary is built with CGO (glibc, and libsystemd
+# loaded at runtime for loki.source.journal), and upstream's image adds libsystemd0, tzdata and
+# ca-certificates for it.
+
+# renovate: datasource=github-releases depName=grafana/alloy extractVersion=^v(?<version>.+)$
+ARG VERSION=1.20.1
+ARG SHA256_AMD64=451fe650e8277d22d69cb8db50bba809f581fe78decba7fce4027ef185457be9
+ARG SHA256_ARM64=396827d58158f181c98d5776c908348b38b4099f1d18a1e7554f2fda0fcb9203
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# unzip tracks the digest-pinned base; pinning RPM versions would break on every UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs unzip \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+# The release zip holds only the binary; LICENSE and LICENSING.md come from the release tag.
+WORKDIR /tmp/alloy
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="alloy-linux-${TARGETARCH}.zip" \
+    && curl -fsSLo "${archive}" "https://github.com/grafana/alloy/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && unzip -q "${archive}" \
+    && curl -fsSLO "https://raw.githubusercontent.com/grafana/alloy/v${VERSION}/LICENSE" \
+    && curl -fsSLO "https://raw.githubusercontent.com/grafana/alloy/v${VERSION}/LICENSING.md" \
+    && mkdir -p /out/bin /out/data/alloy/data /out/data/alloy/supervisor \
+    && chmod -R 0770 /out/data/alloy \
+    && install -m 0755 "alloy-linux-${TARGETARCH}" /out/bin/alloy \
+    && install -D -m 0644 -t /out/licenses LICENSE LICENSING.md
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tzdata as upstream; ca-certificates and systemd-libs (libsystemd) are already in ubi-minimal.
+# It tracks the digest-pinned base, like the download stage.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tzdata \
+    && microdnf clean all
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/alloy/
+COPY --from=download --chown=473:473 /out/data/ /var/lib/
+
+# Upstream creates uid 473 but runs as root; this image runs as 473. Reading the journal or
+# host log files needs that uid (or group) to have access to them.
+USER 473:473
+ENV ALLOY_DEPLOY_MODE=docker
+ENTRYPOINT ["/bin/alloy"]
+CMD ["run", "/etc/alloy/config.alloy", "--storage.path=/var/lib/alloy/data"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-alloy" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Grafana Alloy on Red Hat UBI 10 minimal" \
+      description="Grafana Alloy on Red Hat UBI 10 minimal. Upstream release binary, checksum-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Alloy" \
+      io.k8s.description="Grafana Alloy OpenTelemetry collector distribution on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/alloy" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-alloy" \
+      org.opencontainers.image.description="Grafana Alloy on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-alloy" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
