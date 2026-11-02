@@ -29,6 +29,7 @@ Not affiliated with or supported by Red Hat or the upstream projects.
 | [`traefik/`](traefik/) | [`quay.io/panda-coop/ubi10-traefik`](https://quay.io/repository/panda-coop/ubi10-traefik) | `ubi10/ubi-micro` | `MIT` |
 | [`garage/`](garage/) | [`quay.io/panda-coop/ubi10-garage`](https://quay.io/repository/panda-coop/ubi10-garage) | `ubi10/ubi-micro` | `AGPL-3.0` |
 | [`kafka/`](kafka/) | [`quay.io/panda-coop/ubi10-kafka`](https://quay.io/repository/panda-coop/ubi10-kafka) | `ubi10/openjdk-25-runtime` | `Apache-2.0` |
+| [`kafka-exporter/`](kafka-exporter/) | [`quay.io/panda-coop/ubi10-kafka-exporter`](https://quay.io/repository/panda-coop/ubi10-kafka-exporter) | `ubi10/ubi-micro` | `Apache-2.0` |
 | [`postgresql/`](postgresql/) | [`quay.io/panda-coop/ubi10-postgresql`](https://quay.io/repository/panda-coop/ubi10-postgresql) | `ubi10/ubi-minimal` | `PostgreSQL` |
 | [`valkey/`](valkey/) | [`quay.io/panda-coop/ubi10-valkey`](https://quay.io/repository/panda-coop/ubi10-valkey) | `ubi10/ubi-minimal` | `BSD-3-Clause` |
 | [`clickhouse/`](clickhouse/) | [`quay.io/panda-coop/ubi10-clickhouse`](https://quay.io/repository/panda-coop/ubi10-clickhouse) | `ubi10/ubi-minimal` | `Apache-2.0` |
