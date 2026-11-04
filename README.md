@@ -32,6 +32,7 @@ Not affiliated with or supported by Red Hat or the upstream projects.
 | [`kafka-exporter/`](kafka-exporter/) | [`quay.io/panda-coop/ubi10-kafka-exporter`](https://quay.io/repository/panda-coop/ubi10-kafka-exporter) | `ubi10/ubi-micro` | `Apache-2.0` |
 | [`postgresql/`](postgresql/) | [`quay.io/panda-coop/ubi10-postgresql`](https://quay.io/repository/panda-coop/ubi10-postgresql) | `ubi10/ubi-minimal` | `PostgreSQL` |
 | [`valkey/`](valkey/) | [`quay.io/panda-coop/ubi10-valkey`](https://quay.io/repository/panda-coop/ubi10-valkey) | `ubi10/ubi-minimal` | `BSD-3-Clause` |
+| [`redis-exporter/`](redis-exporter/) | [`quay.io/panda-coop/ubi10-redis-exporter`](https://quay.io/repository/panda-coop/ubi10-redis-exporter) | `ubi10/ubi-micro` | `MIT` |
 | [`clickhouse/`](clickhouse/) | [`quay.io/panda-coop/ubi10-clickhouse`](https://quay.io/repository/panda-coop/ubi10-clickhouse) | `ubi10/ubi-minimal` | `Apache-2.0` |
 | [`keycloak/`](keycloak/) | [`quay.io/panda-coop/ubi10-keycloak`](https://quay.io/repository/panda-coop/ubi10-keycloak) | `ubi10/openjdk-25-runtime` | `Apache-2.0` |
 
