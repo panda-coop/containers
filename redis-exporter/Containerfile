@@ -1,0 +1,92 @@
+# redis_exporter on Red Hat UBI 10 micro, from the upstream release binary.
+# VERSION and both SHA256 values change together; the sha256 values are the ones upstream publishes
+# in the release's sha256sums.txt, and the build fails if the download does not match.
+
+# renovate: datasource=github-releases depName=oliver006/redis_exporter extractVersion=^v(?<version>.+)$
+ARG VERSION=1.97.0
+ARG SHA256_AMD64=492b849dfb359b619115b8f4d122eb59d1d8e666e366fbdeb9b5848732551557
+ARG SHA256_ARM64=e49655203d1035aebef7acef7f08117288c33c3e43acf5c8f491c8eed20f199b
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar and gzip track the digest-pinned base; pinning RPM versions would break on every UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+WORKDIR /tmp/redis_exporter
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="redis_exporter-v${VERSION}.linux-${TARGETARCH}.tar.gz" \
+    && curl -fsSLo "${archive}" "https://github.com/oliver006/redis_exporter/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar -xzf "${archive}" --strip-components=1 \
+    && install -D -m 0755 redis_exporter /out/bin/redis_exporter \
+    && install -D -m 0644 -t /out/licenses LICENSE
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/redis_exporter/
+# ubi-micro has no CA bundle; the exporter needs one for rediss:// without --tls-ca-cert-file.
+# The bundle is the download stage's UBI ca-certificates, so it tracks the pinned base.
+COPY --from=download /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+
+USER 65534:65534
+EXPOSE 9121
+ENTRYPOINT ["/usr/bin/redis_exporter"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-redis-exporter" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Redis exporter for Prometheus on Red Hat UBI 10 micro" \
+      description="redis_exporter, Prometheus metrics for Redis and Valkey, on Red Hat UBI 10 micro. Upstream static release binary, checksum-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Redis exporter" \
+      io.k8s.description="redis_exporter, Redis and Valkey memory, clients, keyspace, hits and evictions as Prometheus metrics, on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/redis-exporter" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-redis-exporter" \
+      org.opencontainers.image.description="redis_exporter on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-redis-exporter" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
