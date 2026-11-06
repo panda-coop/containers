@@ -1,0 +1,112 @@
+# etcd on Red Hat UBI 10 micro, from the upstream release binaries.
+# VERSION and both SHA256 values change together; the sha256 values are the ones upstream publishes
+# in the release's SHA256SUMS, and the build fails if the download does not match. The release
+# archive carries no LICENSE: it comes from the release tag and is checked against
+# SHA256_LICENSE (the Apache-2.0 text, which does not change between releases).
+
+# renovate: datasource=github-releases depName=etcd-io/etcd extractVersion=^v(?<version>3\.6\.\d+)$
+ARG VERSION=3.6.16
+ARG SHA256_AMD64=c8c0d96d8292ef085deabbf735e9561d3d396768e4d606df005aa25964f21911
+ARG SHA256_ARM64=ad756ff27ba21e3488cfb84d00f3f4ad8d9b60a93e20f5be5b230a4aab1dc053
+ARG SHA256_LICENSE=cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar and gzip track the digest-pinned base; pinning RPM versions would break on every UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG SHA256_LICENSE
+ARG TARGETARCH
+
+# ubi-micro has no shell to create the data directory with, so it is made here, empty, owned by
+# the runtime user and mode 0700 (etcd warns on anything wider), and copied in below.
+WORKDIR /tmp/etcd
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="etcd-v${VERSION}-linux-${TARGETARCH}.tar.gz" \
+    && curl -fsSLo "${archive}" "https://github.com/etcd-io/etcd/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar -xzf "${archive}" --strip-components=1 \
+    && curl -fsSLO "https://raw.githubusercontent.com/etcd-io/etcd/v${VERSION}/LICENSE" \
+    && echo "${SHA256_LICENSE}  LICENSE" | sha256sum -c - \
+    && install -D -m 0755 -t /out/bin etcd etcdctl etcdutl \
+    && install -D -m 0644 -t /out/licenses LICENSE \
+    && install -d -o 1001 -g 1001 -m 0700 /out/data/etcd
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/etcd/
+# The parent is copied so /var/lib/etcd keeps the 0700 and 1001 owner set in the download stage;
+# copying the directory itself applies only to its (empty) content.
+COPY --from=download /out/data/ /var/lib/
+# ubi-micro has no CA bundle; etcd and etcdctl need one to verify TLS peers without --trusted-ca-file.
+# The bundle is the download stage's UBI ca-certificates, so it tracks the pinned base.
+COPY --from=download /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+
+# The only default: the data directory is the volume. Everything else is ETCD_* environment or
+# flags; etcd refuses to start when a flag and its ETCD_* variable are both set, so the data
+# directory is changed through ETCD_DATA_DIR, never --data-dir.
+ENV ETCD_DATA_DIR=/var/lib/etcd
+
+# A fixed UID, not 65534: the volume holds the cluster's data, and a file owned by nobody is
+# readable by every other nobody process. 1001 is the owner a bind-mounted directory needs.
+USER 1001:1001
+EXPOSE 2379 2380
+VOLUME ["/var/lib/etcd"]
+ENTRYPOINT ["/usr/bin/etcd"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-etcd" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="etcd on Red Hat UBI 10 micro" \
+      description="etcd, a distributed key-value store, on Red Hat UBI 10 micro. Upstream static release binaries etcd, etcdctl and etcdutl, checksum-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="etcd" \
+      io.k8s.description="etcd, a strongly consistent distributed key-value store (Raft), on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/etcd" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-etcd" \
+      org.opencontainers.image.description="etcd on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-etcd" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
