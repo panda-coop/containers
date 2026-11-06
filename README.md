@@ -35,6 +35,7 @@ Not affiliated with or supported by Red Hat or the upstream projects.
 | [`redis-exporter/`](redis-exporter/) | [`quay.io/panda-coop/ubi10-redis-exporter`](https://quay.io/repository/panda-coop/ubi10-redis-exporter) | `ubi10/ubi-micro` | `MIT` |
 | [`clickhouse/`](clickhouse/) | [`quay.io/panda-coop/ubi10-clickhouse`](https://quay.io/repository/panda-coop/ubi10-clickhouse) | `ubi10/ubi-minimal` | `Apache-2.0` |
 | [`keycloak/`](keycloak/) | [`quay.io/panda-coop/ubi10-keycloak`](https://quay.io/repository/panda-coop/ubi10-keycloak) | `ubi10/openjdk-25-runtime` | `Apache-2.0` |
+| [`cloudflared/`](cloudflared/) | [`quay.io/panda-coop/ubi10-cloudflared`](https://quay.io/repository/panda-coop/ubi10-cloudflared) | `ubi10/ubi-minimal` | `Apache-2.0` |
 
 The licence column is the SPDX expression in each image's `org.opencontainers.image.licenses`
 label. Upstream licences are verified at the pinned version before an image's first
