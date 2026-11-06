@@ -1,0 +1,83 @@
+# keepalived on Red Hat UBI 10 minimal, from the UBI 10 AppStream RPM (Red Hat-signed).
+# VERSION is the upstream x.y.z of that RPM; the RPM release (for example 9.el10) follows UBI and
+# is not pinned. Packages resolve from the UBI repositories only: every other repository,
+# including RHEL repositories a subscribed build host injects, is disabled for the install.
+# Renovate reads the UBI AppStream metadata, so a bump is proposed only once UBI ships it.
+# The RPM ships no licence file: COPYING comes from the upstream tag v${VERSION}, and
+# LICENSE_SHA256 is its sha256; the build fails if it changes.
+
+# renovate: datasource=rpm depName=keepalived registryUrl=https://cdn-ubi.redhat.com/content/public/ubi/dist/ubi10/10/x86_64/appstream/os/repodata/ extractVersion=^(?<version>\d+\.\d+\.\d+)-
+ARG VERSION=2.2.8
+ARG LICENSE_SHA256=8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# The base is pinned by digest in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG LICENSE_SHA256
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# keepalived is the only package asked for; its dependencies track the digest-pinned base. The
+# RHEL build links net-snmp and libsystemd, so the RPM pulls in systemd, dbus and (through
+# net-snmp-agent-libs) perl; none of them runs. The health checks a vrrp_script runs need nothing
+# more: curl is already in ubi-minimal. The RPM's sample /etc/keepalived/keepalived.conf is
+# removed: the configuration is always mounted.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs "keepalived-${VERSION}" \
+    && microdnf clean all \
+    && rpm -q --qf '%{NAME}-%{VERSION}\n' keepalived | grep -qx "keepalived-${VERSION}" \
+    && command -v curl \
+    && curl -fsSLo /tmp/COPYING "https://raw.githubusercontent.com/acassen/keepalived/v${VERSION}/COPYING" \
+    && echo "${LICENSE_SHA256}  /tmp/COPYING" | sha256sum -c - \
+    && install -D -m 0644 -t /licenses/keepalived /tmp/COPYING \
+    && rm -f /tmp/COPYING \
+    && rm -f /etc/keepalived/keepalived.conf
+
+# Root inside the container: VRRP sends and receives raw IP protocol 112 and adds the VIP to a
+# host interface (NET_RAW, NET_ADMIN, NET_BROADCAST in the host network namespace), and keepalived
+# drops each vrrp_script to script_user (SETUID, SETGID) and signals one that times out (KILL).
+# Only those capabilities are granted at run time (README). Foreground, console logs, no syslog
+# socket in the container, and a missing configuration is an error rather than an idle daemon.
+# No EXPOSE: VRRP is not a port.
+# hadolint ignore=DL3002
+USER 0:0
+ENTRYPOINT ["keepalived", "--dont-fork", "--log-console", "--no-syslog", "--all-config", "--use-file=/etc/keepalived/keepalived.conf"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-keepalived" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="keepalived on Red Hat UBI 10 minimal" \
+      description="keepalived, VRRP failover for a virtual IP, on Red Hat UBI 10 minimal. The UBI 10 AppStream RPM, rebuilt on UBI updates." \
+      io.k8s.display-name="keepalived" \
+      io.k8s.description="keepalived: VRRP failover of a virtual IP between hosts, with script-based health checks, on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/keepalived" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-keepalived" \
+      org.opencontainers.image.description="keepalived on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-keepalived" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="GPL-2.0-or-later" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
