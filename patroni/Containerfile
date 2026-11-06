@@ -1,0 +1,105 @@
+# Patroni with PostgreSQL 18 on Red Hat UBI 10 minimal, from the signed PGDG EL 10 RPMs.
+# VERSION is the Patroni x.y.z and PG_VERSION the PostgreSQL x.y; the RPM releases (for example
+# 1PGDG.rhel10.2) follow the PGDG repositories. Packages resolve from the UBI repositories,
+# pgdg18 and pgdg-common only: every other repository, including RHEL repositories a subscribed
+# build host injects, is disabled for the install.
+
+# renovate: datasource=github-releases depName=patroni/patroni extractVersion=^v(?<version>.+)$
+ARG VERSION=4.1.5
+# Same PostgreSQL as postgresql/; Renovate's regex manager reads only ARG VERSION, so this moves
+# by hand together with postgresql/'s ARG VERSION.
+ARG PG_VERSION=18.6
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# The base is pinned by digest in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG VERSION
+ARG PG_VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY PGDG-RPM-GPG-KEY-RHEL /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+COPY pgdg.repo /etc/yum.repos.d/pgdg.repo
+
+# The server and Patroni packages are PGDG's; the rest track the digest-pinned base, and pinning
+# their RPM versions would break on every UBI update. patroni-etcd brings python-etcd, which the
+# etcd3 DCS module also imports; Patroni's etcd3 client itself talks to etcd's gRPC gateway over
+# urllib3. PGDG's patroni package also requires py-consul, which comes along unused. No llvmjit,
+# no PostGIS. PGDG ships PostgreSQL's COPYRIGHT as %doc, so postgresql18 alone is reinstalled
+# with its docs to get it; Patroni's LICENSE is %license and survives --nodocs.
+# Patroni writes postgresql.conf itself and includes initdb's file as postgresql.base.conf: the
+# sample is changed only to log to stderr (PGDG turns logging_collector on, which writes log
+# files under PGDATA instead), listen_addresses is Patroni's postgresql.listen.
+# The volume is /var/lib/pgsql/data and the cluster its userdata/ subdirectory, the RHEL layout
+# of ubi10-postgresql.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=pgdg18 --enablerepo=pgdg-common) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs \
+      "postgresql18-server-${PG_VERSION}" "postgresql18-contrib-${PG_VERSION}" \
+      "patroni-${VERSION}" "patroni-etcd-${VERSION}" \
+      tzdata \
+    && microdnf -y reinstall "${repos[@]}" "postgresql18-${PG_VERSION}" \
+    && microdnf clean all \
+    && rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' postgresql18-server | grep -q "^postgresql18-server-${PG_VERSION}-.*PGDG" \
+    && rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' patroni patroni-etcd | grep -c "^patroni\(-etcd\)\?-${VERSION}-.*PGDG" | grep -qx 2 \
+    && install -D -m 0644 -t /licenses/postgresql /usr/share/doc/postgresql18/COPYRIGHT \
+    && install -D -m 0644 -t /licenses/patroni /usr/share/licenses/patroni/LICENSE \
+    && sed -ri "s!^#?(logging_collector)\s*=\s*\S+!\1 = off!" /usr/pgsql-18/share/postgresql.conf.sample \
+    && grep -qF "logging_collector = off" /usr/pgsql-18/share/postgresql.conf.sample \
+    && install -d -o postgres -g postgres -m 0700 /var/lib/pgsql/data \
+    && install -d -o postgres -g postgres -m 3777 /run/postgresql \
+    && install -d -m 0755 /etc/patroni
+
+ENV PG_MAJOR=18 \
+    PATH=/usr/pgsql-18/bin:$PATH \
+    PGDATA=/var/lib/pgsql/data/userdata \
+    LANG=C.UTF-8
+
+USER 26:26
+EXPOSE 5432 8008
+VOLUME ["/var/lib/pgsql/data"]
+# Patroni reads the file given as its argument when it exists, else the YAML in
+# PATRONI_CONFIGURATION, else PATRONI_* variables alone; PATRONI_* variables override the file.
+# As PID 1 Patroni forks the daemon, forwards signals to it and reaps children.
+ENTRYPOINT ["patroni"]
+CMD ["/etc/patroni/patroni.yml"]
+# SIGTERM is Patroni's graceful stop: it shuts PostgreSQL down in fast mode and releases the
+# leader key, so a replica takes over without waiting for the leader TTL.
+STOPSIGNAL SIGTERM
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-patroni" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Patroni with PostgreSQL 18 on Red Hat UBI 10 minimal" \
+      description="Patroni high-availability PostgreSQL 18 on Red Hat UBI 10 minimal. PGDG EL 10 packages, signature-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Patroni" \
+      io.k8s.description="Patroni, a template for highly available PostgreSQL with etcd as the DCS, with PostgreSQL ${PG_VERSION} on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/patroni" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-patroni" \
+      org.opencontainers.image.description="Patroni with PostgreSQL ${PG_VERSION} on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream projects." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-patroni" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="MIT AND PostgreSQL" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
