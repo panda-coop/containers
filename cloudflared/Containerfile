@@ -1,0 +1,83 @@
+# cloudflared on Red Hat UBI 10 minimal, from Cloudflare's signed RPM repository (pkg.cloudflare.com).
+# The package key is in the build context (RPM-GPG-KEY-cloudflare, fingerprint
+# CC94B39C77AE7342A68B89628A682D308D4E5E73); microdnf refuses a package it does not sign.
+# The repository keeps only the latest release: VERSION must follow upstream, or the install fails.
+# LICENSE_SHA256 is the sha256 of LICENSE at the VERSION tag; the build fails if it changes.
+
+# renovate: datasource=github-releases depName=cloudflare/cloudflared
+ARG VERSION=2026.10.7
+ARG LICENSE_SHA256=58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd
+
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+
+# The base is pinned by digest in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG LICENSE_SHA256
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY RPM-GPG-KEY-cloudflare /etc/pki/rpm-gpg/RPM-GPG-KEY-cloudflare
+COPY cloudflared.repo /etc/yum.repos.d/cloudflared.repo
+
+# cloudflared is the only package installed: it is a static Go binary with no dependencies, and
+# ca-certificates (the TLS bundle for Cloudflare's edge) is already in ubi-minimal. Packages
+# resolve from the UBI repositories and cloudflared-stable only: RHEL repositories a subscribed
+# build host injects must not satisfy a dependency. The RPM ships no licence file, so LICENSE
+# comes from the release tag, checksum-pinned.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=cloudflared-stable) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs "cloudflared-${VERSION}" \
+    && microdnf clean all \
+    && rpm -q --qf '%{NAME}-%{VERSION}\n' cloudflared | grep -qx "cloudflared-${VERSION}" \
+    && test -s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+    && curl -fsSLo /tmp/LICENSE "https://raw.githubusercontent.com/cloudflare/cloudflared/${VERSION}/LICENSE" \
+    && echo "${LICENSE_SHA256}  /tmp/LICENSE" | sha256sum -c - \
+    && install -D -m 0644 -t /licenses/cloudflared /tmp/LICENSE \
+    && rm -f /tmp/LICENSE
+
+# No self-update in a container: a new version is a new image. As upstream's image, an environment
+# variable rather than a flag, so it holds when the command is overridden.
+ENV NO_AUTOUPDATE=true
+
+# 65532 as upstream's image (distroless nonroot): the connector keeps no state, and the same UID
+# keeps securityContext and Quadlet settings written for upstream's image valid.
+USER 65532:65532
+ENTRYPOINT ["cloudflared"]
+CMD ["version"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-cloudflared" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="cloudflared on Red Hat UBI 10 minimal" \
+      description="cloudflared, the Cloudflare Tunnel connector, on Red Hat UBI 10 minimal. Cloudflare's signed RPM, signature-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="cloudflared" \
+      io.k8s.description="cloudflared, the Cloudflare Tunnel connector: outbound-only tunnels from Cloudflare's edge to local services, on Red Hat UBI 10 minimal." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/cloudflared" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-cloudflared" \
+      org.opencontainers.image.description="cloudflared on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-cloudflared" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"

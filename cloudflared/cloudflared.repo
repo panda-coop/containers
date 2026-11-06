@@ -1,0 +1,13 @@
+# Cloudflare's cloudflared stable channel, as pkg.cloudflare.com/cloudflared.repo, with the key
+# from the build context (RPM-GPG-KEY-cloudflare, CloudFlare Software Packaging 2025, fingerprint
+# CC94 B39C 77AE 7342 A68B  8962 8A68 2D30 8D4E 5E73). The packages are signed with it (gpgcheck).
+# The repository metadata is signed with the deprecated 2015 key (FBA8 C0EE … 8CAC CBF8), which
+# upstream's .repo does not distribute and this image does not trust, so no repo_gpgcheck.
+[cloudflared-stable]
+name=cloudflared-stable
+baseurl=https://pkg.cloudflare.com/cloudflared/rpm
+enabled=1
+type=rpm
+gpgcheck=1
+repo_gpgcheck=0
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-cloudflare
