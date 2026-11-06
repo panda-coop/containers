@@ -156,6 +156,24 @@ network storage, and check `etcd_disk_wal_fsync_duration_seconds` p99 (upstream'
 under 10 ms). The default backend quota is 2 GiB; Patroni writes a few keys, so the quota only
 matters if compaction stops.
 
+## Known advisories
+
+Quay's scanner lists four fixable Go advisories on 3.6.16. They are in modules compiled into
+upstream's release binaries, so only an etcd release fixes them; v3.6.16, v3.7.3 and the
+`release-3.6` / `release-3.7` branches all still pin the affected versions (checked 2026-11-06).
+
+| Advisory | Module | Reachable |
+|---|---|---|
+| GO-2026-5932 | `golang.org/x/crypto` v0.58.0 (`openpgp`) | No: linked into `etcd` and `etcdutl`, never called |
+| GO-2026-6866, GO-2026-6860 | `golang.org/x/net` v0.61.0 (`html`) | No: etcd does not parse or render HTML |
+| GO-2026-6865 | `github.com/klauspost/compress` v1.18.7 (zstd) | Only through interface over-approximation (`fmt.Println`, test, failpoint and `etcd-dump-db` paths, none shipped); the input would be etcd's own output, not a client's |
+
+Checked with `govulncheck -mode=binary` on the image's three binaries and source-mode
+`govulncheck ./...` on the v3.6.16 tree (`etcdctl` and `etcdutl` modules: no findings). Building
+etcd from source with bumped modules would break the upstream-release-binaries rule for findings
+that are unreachable; the fix arrives with the next etcd patch release through Renovate. Keep the
+client, peer and metrics listeners off untrusted networks meanwhile.
+
 ## Local build
 
 ```sh
