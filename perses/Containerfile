@@ -6,9 +6,9 @@
 # and plugins-archive/ (the bundled panel and datasource plugins, unpacked at startup).
 
 # renovate: datasource=github-releases depName=perses/perses extractVersion=^v(?<version>.+)$
-ARG VERSION=0.54.0
-ARG SHA256_AMD64=450a387501162fec8e36f0f2628be02ad994fefa989ad1e72a8889ce5eb12a4c
-ARG SHA256_ARM64=51e7f66e6e5af4d70d3ab92da6b5ef757368d620ba718e934a4fec225112a353
+ARG VERSION=0.55.1
+ARG SHA256_AMD64=7c38ace5ce665e22d7d4f823b8bc0c8e91f9bcef381f218d8c564e0fe62ba750
+ARG SHA256_ARM64=bd777b183622e2eaeda6645748be47d65afb67eb91aa8d8d726a7c10efd8a1c5
 
 ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
 ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
