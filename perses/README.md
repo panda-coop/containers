@@ -20,9 +20,9 @@ upstream project.
 
 | Tag | Example | Moves |
 |---|---|---|
-| `x.y.z-<epoch>` | `0.54.0-<epoch>` | never |
-| `x.y.z` | `0.54.0` | on a UBI rebuild |
-| `x.y` | `0.54` | on a patch release; the floating major of a 0.x upstream |
+| `x.y.z-<epoch>` | `0.55.1-<epoch>` | never |
+| `x.y.z` | `0.55.1` | on a UBI rebuild |
+| `x.y` | `0.55` | on a patch release; the floating major of a 0.x upstream |
 | `latest` | | on every release |
 
 No `0` tag while upstream is 0.x. See [ADR 0001](../docs/decisions/0001-image-tags-version-release-timestamp.md).
@@ -58,7 +58,7 @@ podman volume create perses-data
 podman run -d --name perses -p 8080:8080 \
   -v ./perses.yaml:/etc/perses/config.yaml:ro,Z \
   -v perses-data:/perses \
-  quay.io/panda-coop/ubi10-perses:0.54
+  quay.io/panda-coop/ubi10-perses:0.55
 
 curl -s localhost:8080/api/v1/health
 ```
