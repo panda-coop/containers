@@ -27,6 +27,7 @@ Not affiliated with or supported by Red Hat or the upstream projects.
 | [`perses/`](perses/) | [`quay.io/panda-coop/ubi10-perses`](https://quay.io/repository/panda-coop/ubi10-perses) | `ubi10/ubi-minimal` | `Apache-2.0` |
 | [`envoy/`](envoy/) | [`quay.io/panda-coop/ubi10-envoy`](https://quay.io/repository/panda-coop/ubi10-envoy) | `ubi10/ubi-minimal` | `Apache-2.0` |
 | [`traefik/`](traefik/) | [`quay.io/panda-coop/ubi10-traefik`](https://quay.io/repository/panda-coop/ubi10-traefik) | `ubi10/ubi-micro` | `MIT` |
+| [`mailpit/`](mailpit/) | [`quay.io/panda-coop/ubi10-mailpit`](https://quay.io/repository/panda-coop/ubi10-mailpit) | `ubi10/ubi-micro` | `MIT` |
 | [`garage/`](garage/) | [`quay.io/panda-coop/ubi10-garage`](https://quay.io/repository/panda-coop/ubi10-garage) | `ubi10/ubi-micro` | `AGPL-3.0` |
 | [`kafka/`](kafka/) | [`quay.io/panda-coop/ubi10-kafka`](https://quay.io/repository/panda-coop/ubi10-kafka) | `ubi10/openjdk-25-runtime` | `Apache-2.0` |
 | [`kafka-exporter/`](kafka-exporter/) | [`quay.io/panda-coop/ubi10-kafka-exporter`](https://quay.io/repository/panda-coop/ubi10-kafka-exporter) | `ubi10/ubi-micro` | `Apache-2.0` |
