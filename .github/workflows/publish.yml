@@ -32,6 +32,9 @@ defaults:
 jobs:
   publish:
     runs-on: ubuntu-24.04
+    # The OIDC subject becomes `…:environment:quay`, the one the Quay robot federation trusts;
+    # the environment admits main only.
+    environment: quay
     # One release of an image at a time, so two releases never share an epoch (ADR 0001).
     concurrency:
       group: publish-${{ inputs.image }}
