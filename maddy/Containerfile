@@ -1,0 +1,123 @@
+# maddy on Red Hat UBI 10 micro, from the upstream static (musl) release binary.
+# VERSION and both SHA256 values change together. Upstream publishes no checksum file: the
+# sha256 values are GitHub's asset digests for the release's tar.zst archives, which were
+# checked against upstream's detached GPG signatures (.sig, signing subkey
+# CD76A6BB1D86CE4BC9C65BE5E943A49EE71E6169 of Max Mazurov, 3197BBD95137E682A59717B434BB2007081396F4)
+# when pinned; the build fails if the download does not match. The archive (paths under
+# ./maddy-<version>-<arch>-linux-musl/, hence two components stripped) carries no licence:
+# COPYING (GPL-3.0) and the config lexer's LICENSE.APACHE come from the release tag, sha256-pinned.
+
+# renovate: datasource=github-releases depName=foxcpp/maddy extractVersion=^v(?<version>.+)$
+ARG VERSION=0.9.7
+ARG SHA256_AMD64=5fa87ce9f8eda28a0c7f9c70112a402e9ac77696209554b4524ee3e13785ada4
+ARG SHA256_ARM64=8db23c26082717d307064874c2b228268c4c500baa671c1f9fcad7009acd14c1
+ARG SHA256_COPYING=3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+ARG SHA256_LICENSE_APACHE=b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar and zstd track the digest-pinned base; pinning RPM versions would break on every UBI update.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar zstd \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG SHA256_COPYING
+ARG SHA256_LICENSE_APACHE
+ARG TARGETARCH
+
+# ubi-micro has no shell to create directories with, so the state and runtime directories are
+# made here, empty, owned by the runtime user and mode 0700 (the queue holds message bodies),
+# and copied in below.
+WORKDIR /tmp/maddy
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}"; arch=x86_64 ;; \
+      arm64) sha256="${SHA256_ARM64}"; arch=aarch64 ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="maddy-${VERSION}-${arch}-linux-musl.tar.zst" \
+    && curl -fsSLo "${archive}" "https://github.com/foxcpp/maddy/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar --zstd -xf "${archive}" --strip-components=2 \
+    && curl -fsSLO "https://raw.githubusercontent.com/foxcpp/maddy/v${VERSION}/COPYING" \
+    && echo "${SHA256_COPYING}  COPYING" | sha256sum -c - \
+    && curl -fsSLO "https://raw.githubusercontent.com/foxcpp/maddy/v${VERSION}/framework/config/lexer/LICENSE.APACHE" \
+    && echo "${SHA256_LICENSE_APACHE}  LICENSE.APACHE" | sha256sum -c - \
+    && install -D -m 0755 maddy /out/bin/maddy \
+    && install -D -m 0644 -t /out/licenses COPYING LICENSE.APACHE \
+    && install -d -o 1001 -g 1001 -m 0700 /out/state/maddy /out/run/maddy
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/maddy/
+# The parents are copied so /var/lib/maddy and /run/maddy keep the 0700 and 1001 owner set in
+# the download stage; copying the directory itself applies only to its (empty) content.
+COPY --from=download /out/state/ /var/lib/
+COPY --from=download /out/run/ /run/
+# ubi-micro has no CA bundle; maddy needs one to verify TLS on outbound delivery and to a
+# smarthost. The bundle is the download stage's UBI ca-certificates, so it tracks the pinned base.
+COPY --from=download /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+
+# maddy's compiled-in defaults are the paths used here: configuration /etc/maddy/maddy.conf
+# (mounted, never in the image), state_dir /var/lib/maddy, runtime_dir /run/maddy. Relative paths
+# in the configuration resolve against the working directory, as upstream's systemd unit sets it.
+WORKDIR /var/lib/maddy
+
+# A fixed UID, not 65534: the state volume holds queued messages, and a file owned by nobody is
+# readable by every other nobody process. 1001 is the owner a bind-mounted directory needs.
+USER 1001:1001
+EXPOSE 25 587
+VOLUME ["/var/lib/maddy"]
+ENTRYPOINT ["/usr/bin/maddy"]
+CMD ["run"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# GPL-3.0: org.opencontainers.image.source points at the upstream tag the binary is built from.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-maddy" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="maddy mail server on Red Hat UBI 10 micro" \
+      description="maddy, a composable mail server, on Red Hat UBI 10 micro. Upstream static release binary, checksum-verified, rebuilt on UBI updates. GPL-3.0, source: upstream tag in the image labels." \
+      io.k8s.display-name="maddy" \
+      io.k8s.description="maddy mail server: SMTP submission, queueing, DKIM signing and outbound delivery, on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/maddy" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-maddy" \
+      org.opencontainers.image.description="maddy on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/foxcpp/maddy/tree/v${VERSION}" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-maddy" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
