@@ -1,0 +1,114 @@
+# Mailpit on Red Hat UBI 10 micro, from the upstream static release binary.
+# VERSION and both SHA256 values change together. Upstream publishes no checksum file: the
+# sha256 values are GitHub's asset digests for the release's tar.gz archives, and the build
+# fails if the download does not match.
+
+# renovate: datasource=github-releases depName=axllent/mailpit extractVersion=^v(?<version>.+)$
+ARG VERSION=1.34.0
+ARG SHA256_AMD64=af236b42f171b1c74f0ac5ff444f44d36f2f2ecc0134f5a2f1d4e307e56a0d2c
+ARG SHA256_ARM64=179f3fe9642edb3a123edc613003e45641869c5b2728c2076c7bef1c3e09dd01
+
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
+
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# tar, gzip and tzdata track the digest-pinned base; pinning RPM versions would break on every
+# UBI update. tzdata goes into the image: ubi-micro has none, and Mailpit's TZ (the time zone of
+# its log and of dates in the UI) needs zoneinfo, as upstream's image installs it.
+# Only the UBI repositories are enabled: RHEL repositories a subscribed build host injects
+# must not satisfy a dependency.
+# hadolint ignore=DL3041
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms) \
+    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs tar gzip tzdata \
+    && microdnf clean all
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG TARGETARCH
+
+# ubi-micro has no shell to create the data directory with, so it is made here, empty, owned by
+# the runtime user, and copied in below.
+WORKDIR /tmp/mailpit
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && archive="mailpit-linux-${TARGETARCH}.tar.gz" \
+    && curl -fsSLo "${archive}" "https://github.com/axllent/mailpit/releases/download/v${VERSION}/${archive}" \
+    && echo "${sha256}  ${archive}" | sha256sum -c - \
+    && tar -xzf "${archive}" \
+    && install -D -m 0755 mailpit /out/bin/mailpit \
+    && install -D -m 0644 -t /out/licenses LICENSE \
+    && install -d -o 1001 -g 1001 -m 0700 /out/data/mailpit \
+    && mkdir -p /out/system/usr/share \
+    && cp -a /usr/share/zoneinfo /out/system/usr/share/
+
+# hadolint ignore=DL3006
+FROM ${BASE_IMAGE}
+
+ARG VERSION
+ARG RELEASE
+ARG REVISION
+ARG CREATED
+ARG BASE_IMAGE
+
+COPY --from=download /out/bin/ /usr/bin/
+COPY --from=download /out/licenses/ /licenses/mailpit/
+# The parent is copied so /var/lib/mailpit keeps the 0700 and 1001 owner set in the download
+# stage; copying the directory itself applies only to its (empty) content.
+COPY --from=download /out/data/ /var/lib/
+COPY --from=download /out/system/ /
+# ubi-micro has no CA bundle; Mailpit needs one for an SMTP relay or forward target over TLS and
+# for the link checker. The bundle is the download stage's UBI ca-certificates, so it tracks the
+# pinned base.
+COPY --from=download /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+
+# The only default: the SQLite database lives on the volume. Upstream's default is a temporary
+# file that is lost with the container. Everything else is MP_* environment or flags.
+ENV MP_DATABASE=/var/lib/mailpit/mailpit.db
+
+# A fixed UID, not 65534: the volume holds captured messages, and a file owned by nobody is
+# readable by every other nobody process. 1001 is the owner a bind-mounted directory needs.
+USER 1001:1001
+EXPOSE 1025 8025
+VOLUME ["/var/lib/mailpit"]
+# As upstream's image. Docker format keeps HEALTHCHECK; `mailpit readyz` checks the web UI.
+HEALTHCHECK --interval=15s --start-period=10s CMD ["/usr/bin/mailpit", "readyz"]
+ENTRYPOINT ["/usr/bin/mailpit"]
+
+# Our identity over the inherited UBI labels; com.redhat.* blanked. The base digest label is
+# what the scheduled rebuild compares against the current UBI digest. DL3048: the inherited
+# key com.redhat.license_terms has an underscore, and blanking it needs that exact key.
+# hadolint ignore=DL3048
+LABEL name="panda-coop/ubi10-mailpit" \
+      version="${VERSION}" \
+      release="${RELEASE}" \
+      summary="Mailpit on Red Hat UBI 10 micro" \
+      description="Mailpit, an SMTP mail catcher with a web UI and API for testing, on Red Hat UBI 10 micro. Upstream static release binary, checksum-verified, rebuilt on UBI updates." \
+      io.k8s.display-name="Mailpit" \
+      io.k8s.description="Mailpit: catches mail sent over SMTP and shows it in a web UI and REST API, on Red Hat UBI 10 micro." \
+      vendor="Panda Coop" \
+      maintainer="Panda Coop" \
+      url="https://github.com/panda-coop/containers/tree/main/mailpit" \
+      build-date="${CREATED}" \
+      vcs-ref="${REVISION}" \
+      vcs-type="git" \
+      com.redhat.component="" \
+      com.redhat.license_terms="" \
+      org.opencontainers.image.title="ubi10-mailpit" \
+      org.opencontainers.image.description="Mailpit on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.source="https://github.com/panda-coop/containers" \
+      org.opencontainers.image.url="https://quay.io/repository/panda-coop/ubi10-mailpit" \
+      org.opencontainers.image.vendor="Panda Coop" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.base.name="${BASE_IMAGE}"
