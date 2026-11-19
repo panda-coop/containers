@@ -2,7 +2,7 @@
 
 [![Build](https://github.com/panda-coop/containers/actions/workflows/build.yml/badge.svg)](https://github.com/panda-coop/containers/actions/workflows/build.yml)
 [![Release](https://github.com/panda-coop/containers/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/panda-coop/containers/actions/workflows/release.yml)
-[![Weekly rebuild](https://github.com/panda-coop/containers/actions/workflows/rebuild.yml/badge.svg)](https://github.com/panda-coop/containers/actions/workflows/rebuild.yml)
+[![Rebuild](https://github.com/panda-coop/containers/actions/workflows/rebuild.yml/badge.svg)](https://github.com/panda-coop/containers/actions/workflows/rebuild.yml)
 [![License](https://img.shields.io/github/license/panda-coop/containers)](LICENSE)
 [![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen?logo=renovatebot)](https://github.com/renovatebot/renovate)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/panda-coop/containers/badge)](https://scorecard.dev/viewer/?uri=github.com/panda-coop/containers)

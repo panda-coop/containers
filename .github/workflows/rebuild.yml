@@ -1,12 +1,12 @@
 name: rebuild
 
-# Weekly: rebuild a published image only when its UBI base digest changed since it was built.
+# Hourly: rebuild a published image only when its UBI base digest changed since it was built.
 # The rebuild keeps the upstream version and uses the base tag's current digest; Renovate later
 # moves the Containerfile pin to the same digest.
 
 on:
   schedule:
-    - cron: '17 4 * * 1'
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -16,6 +16,11 @@ on:
 
 permissions:
   contents: read
+
+# A run waits for the previous one, so it sees the label of an image the previous run rebuilt.
+concurrency:
+  group: rebuild
+  cancel-in-progress: false
 
 defaults:
   run:
