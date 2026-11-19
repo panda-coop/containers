@@ -1,8 +1,8 @@
 # Patroni with PostgreSQL 18 on Red Hat UBI 10 minimal, from the signed PGDG EL 10 RPMs.
 # VERSION is the Patroni x.y.z and PG_VERSION the PostgreSQL x.y; the RPM releases (for example
 # 1PGDG.rhel10.2) follow the PGDG repositories. Packages resolve from the UBI repositories,
-# pgdg18 and pgdg-common only: every other repository, including RHEL repositories a subscribed
-# build host injects, is disabled for the install.
+# pgdg18, pgdg-common and their archives only: every other repository, including RHEL
+# repositories a subscribed build host injects, is disabled for the install.
 
 # renovate: datasource=github-releases depName=patroni/patroni extractVersion=^v(?<version>.+)$
 ARG VERSION=4.1.5
@@ -40,7 +40,7 @@ COPY pgdg.repo /etc/yum.repos.d/pgdg.repo
 # The volume is /var/lib/pgsql/data and the cluster its userdata/ subdirectory, the RHEL layout
 # of ubi10-postgresql.
 # hadolint ignore=DL3041
-RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=pgdg18 --enablerepo=pgdg-common) \
+RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=pgdg18 --enablerepo=pgdg18-archive --enablerepo=pgdg-common --enablerepo=pgdg-common-archive) \
     && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs \
       "postgresql18-server-${PG_VERSION}" "postgresql18-contrib-${PG_VERSION}" \
       "patroni-${VERSION}" "patroni-etcd-${VERSION}" \

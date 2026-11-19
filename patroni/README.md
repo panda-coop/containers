@@ -17,7 +17,9 @@ the upstream projects.
 | Image | `quay.io/panda-coop/ubi10-patroni` |
 | Upstream | PGDG `patroni` and `patroni-etcd` RPMs, Patroni version in `ARG VERSION`, PostgreSQL version in `ARG PG_VERSION` of the [Containerfile](Containerfile); the RPM releases follow the repositories |
 | Base | `registry.access.redhat.com/ubi10/ubi-minimal`, pinned by digest |
-| Repositories | UBI BaseOS and AppStream, `pgdg18` and `pgdg-common` ([pgdg.repo](pgdg.repo)); every other repository is disabled for the install, so a subscribed build host's RHEL repositories cannot satisfy a dependency |
+| Repositories | UBI BaseOS and AppStream, `pgdg18`, `pgdg-common` and their archives `pgdg18-archive` and `pgdg-common-archive` ([pgdg.repo](pgdg.repo)); every other repository is disabled for the install, so a subscribed build host's RHEL repositories cannot satisfy a dependency |
+| Repository path | `rhel-<major>.<minor>-<arch>`, the base's RHEL minor (`$releasever_major.$releasever_minor`, from its `redhat-release`), not upstream's `rhel-$releasever`: `rhel-10` follows the newest RHEL minor, whose builds can need libraries the UBI base does not have yet |
+| Archives | `https://yum-archive.postgresql.org/{18,common}/redhat/` keep the versions PGDG drops from the live repositories, so a pinned `VERSION` and `PG_VERSION` stay installable. Repositories of their own, not second `baseurl` values: several `baseurl` values are mirrors, and dnf reads the metadata of only the first that answers. An archive is skipped while PGDG has not created it for a RHEL minor |
 | Signatures | `gpgcheck=1` and `repo_gpgcheck=1` against [PGDG-RPM-GPG-KEY-RHEL](PGDG-RPM-GPG-KEY-RHEL), fingerprint `D4BF 08AE 67A0 B4C7 A1DB CCD2 40BC A2B4 08B4 0D20`, the same key as ubi10-postgresql |
 | Python | UBI's `python3` 3.12 and UBI Python libraries; PGDG builds `psycopg2`, `python-etcd`, `click`, `ydiff` and `py-consul` (a requirement of PGDG's `patroni` package, unused here) |
 | DCS | etcd v3 API (`etcd3`); the etcd v2 `etcd` section also works. Consul, ZooKeeper, Kubernetes and Raft are not configured or tested |
@@ -213,3 +215,6 @@ task inspect IMAGE=patroni
 Renovate follows Patroni's GitHub releases on `ARG VERSION`. PGDG can lag a Patroni release;
 until PGDG has the RPMs the build fails at `microdnf install`. `ARG PG_VERSION` is not tracked
 by Renovate: bump it with ubi10-postgresql's `ARG VERSION`.
+
+A Renovate bump of the base's `x.y` tag moves the PGDG paths to the new RHEL minor too; until
+PGDG builds the pinned versions for that minor, the build fails at `microdnf install`.

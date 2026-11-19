@@ -1,12 +1,12 @@
 # ubi10-cloudflared
 
-[cloudflared](https://github.com/cloudflare/cloudflared) on Red Hat UBI 10 minimal: the
-Cloudflare Tunnel connector from Cloudflare's signed RPM repository, `pkg.cloudflare.com`,
-rebuilt on UBI updates.
+[cloudflared](https://github.com/cloudflare/cloudflared) on Red Hat UBI 10 micro: the
+Cloudflare Tunnel connector, upstream's static release binary checksum-verified against the
+sha256 Cloudflare publishes with the release, rebuilt on UBI updates.
 
-The connector for a remotely-managed tunnel on `lb-01` and `lb-02`: both run a connector of the
-same tunnel, so they are active/active replicas, and each forwards to the Envoy on its own host.
-The tunnel's routes live in the Cloudflare dashboard, not in the container.
+The connector for a remotely-managed tunnel: several hosts may run a connector of the same tunnel
+as active/active replicas. The tunnel's routes live in the Cloudflare dashboard, not in the
+container.
 
 Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the
 upstream project.
@@ -15,16 +15,28 @@ upstream project.
 |---|---|
 | Image | `quay.io/panda-coop/ubi10-cloudflared` |
 | Upstream | `cloudflare/cloudflared`, version in `ARG VERSION` of the [Containerfile](Containerfile) |
-| Package | `cloudflared`, pinned to `VERSION`, from `https://pkg.cloudflare.com/cloudflared/rpm` (upstream's [`cloudflared.repo`](https://pkg.cloudflare.com/cloudflared.repo)) |
-| Package check | Signed packages (`gpgcheck=1`) against [`RPM-GPG-KEY-cloudflare`](RPM-GPG-KEY-cloudflare), `CloudFlare Software Packaging 2025`, fingerprint `CC94B39C77AE7342A68B89628A682D308D4E5E73`, the key Cloudflare rolled to on 2025-10-30. The repository metadata is signed with the deprecated 2015 key, which upstream's `.repo` does not distribute, so no `repo_gpgcheck` |
-| Base | `registry.access.redhat.com/ubi10/ubi-minimal`, pinned by digest; nothing else is installed |
-| Architectures | `amd64`, `arm64` (the repository has both; CI publishes `amd64`) |
+| Binary | `cloudflared-linux-<arch>` from the GitHub release, a static Go binary (the same file Cloudflare's RPM packages), at `/usr/bin/cloudflared` with the RPM's `/usr/local/bin/cloudflared` link |
+| Binary check | `ARG SHA256_AMD64` / `ARG SHA256_ARM64`, the sha256 values in the release notes, which match GitHub's asset digests |
+| Base | `registry.access.redhat.com/ubi10/ubi-micro`, pinned by digest; the download stage is `ubi10/ubi-minimal` |
+| Architectures | `amd64`, `arm64` (both checksums pinned; CI publishes `amd64`) |
 | User | `65532:65532`, as upstream's image (distroless `nonroot`) |
-| Licence | Apache-2.0; the RPM has no licence file, so upstream `LICENSE` from the release tag (sha256-pinned) in `/licenses/cloudflared/` |
-| CA bundle | `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`, UBI `ca-certificates`, for the TLS to Cloudflare's edge |
+| Licence | Apache-2.0; the release has no licence file, so upstream `LICENSE` from the release tag (sha256-pinned) in `/licenses/cloudflared/` |
+| CA bundle | `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` (and the `/etc/pki/tls/certs/ca-bundle.crt` link), the download stage's UBI `ca-certificates`, for the TLS to Cloudflare's edge |
 
-The repository serves only the latest release. A pinned `VERSION` stops building once Cloudflare
-publishes the next one, until the Renovate PR for it is merged.
+Every GitHub release keeps its binaries, so a pinned `VERSION` keeps building after Cloudflare
+publishes the next one. Earlier images installed the RPM from `pkg.cloudflare.com`, which serves
+only the latest release.
+
+### Changes from the RPM-based image
+
+| Item | RPM-based (`ubi-minimal`) | Now (`ubi-micro`) |
+|---|---|---|
+| Entrypoint, command, user, `NO_AUTOUPDATE` | `cloudflared`, `version`, `65532:65532`, `true` | unchanged |
+| Binary | `/usr/bin/cloudflared`, `/usr/local/bin/cloudflared` link | unchanged, byte-identical for `2026.10.7` |
+| CA bundle path | `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem` | unchanged |
+| Package manager | `microdnf`, `rpm` | none: `rpm -q cloudflared` no longer works; `cloudflared version` does |
+| Other tools | ubi-minimal's userland, `curl` | ubi-micro's: `bash` and coreutils, no `curl` |
+| Man page | `/usr/share/man/man1/cloudflared.1` | none |
 
 ## Tags
 
@@ -51,7 +63,7 @@ See [ADR 0001](../docs/decisions/0001-image-tags-version-release-timestamp.md).
 
 ### Metrics and readiness
 
-The RPM binary is a host build: without `--metrics` it binds `localhost:20241` (the first free of
+The release binary is a host build: without `--metrics` it binds `localhost:20241` (the first free of
 `20241`–`20245`), inside the container's network namespace. Upstream's image is built with
 `CONTAINER_BUILD=1` and binds `0.0.0.0` instead; this one does not. To scrape it, pass the address
 explicitly, `--metrics 0.0.0.0:2000` (or `TUNNEL_METRICS=0.0.0.0:2000`), and publish the port.
@@ -97,7 +109,7 @@ HealthStartPeriod=30s
 Restart=always
 ```
 
-With `Network=host` the tunnel's origin is the host's Envoy as configured in the dashboard, and
+With `Network=host` the tunnel reaches origins on the host as configured in the dashboard, and
 the metrics stay on the loopback; use `--metrics 0.0.0.0:2000` with a published port for a
 bridge network or a remote scrape.
 
@@ -109,7 +121,7 @@ task run IMAGE=cloudflared -- version
 task inspect IMAGE=cloudflared
 ```
 
-A version bump changes `ARG VERSION`; `ARG LICENSE_SHA256` only when upstream's `LICENSE`
-changes, and a stale value fails the build. A Cloudflare key rotation fails the install with
-`SIGNATURE: NOT OK`: replace `RPM-GPG-KEY-cloudflare` from `https://pkg.cloudflare.com/cloudflare-main.gpg`
-and update the fingerprint here and in [`cloudflared.repo`](cloudflared.repo).
+A version bump changes `ARG VERSION` and both `ARG SHA256_*` values, from the release notes'
+checksum list (or `gh api repos/cloudflare/cloudflared/releases/tags/<version>`, each asset's
+`digest`); `ARG SHA256_LICENSE` only when upstream's `LICENSE` changes. A stale value fails the
+build.

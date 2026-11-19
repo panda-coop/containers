@@ -1,10 +1,27 @@
 # PGDG PostgreSQL 18 for EL 10, from pgdg-redhat-repo-latest.noarch.rpm (EL-10-x86_64), reduced
-# to the one repository the image needs. Packages and repository metadata are both signature-checked
-# against PGDG-RPM-GPG-KEY-RHEL (fingerprint D4BF 08AE 67A0 B4C7 A1DB  CCD2 40BC A2B4 08B4 0D20).
+# to the one repository the image needs, plus its archive. Packages and repository metadata are
+# both signature-checked against PGDG-RPM-GPG-KEY-RHEL (fingerprint D4BF 08AE 67A0 B4C7 A1DB  CCD2
+# 40BC A2B4 08B4 0D20).
+# The path is the base's minor release, rhel-<major>.<minor>-<arch>, from the base's redhat-release
+# package ($releasever_major, $releasever_minor), not upstream's rhel-$releasever: rhel-10 follows
+# the newest RHEL minor, whose builds can need libraries the UBI base does not have yet.
+# PGDG drops older minors from the live repository; the archive keeps them, so a pinned VERSION
+# stays installable. The archive is a repository of its own: several baseurl values in one stanza
+# are mirrors, and dnf reads the metadata from the first that answers. It is skipped while PGDG has
+# not created it for a new minor; its packages are signature-checked all the same.
 [pgdg18]
-name=PostgreSQL 18 for RHEL $releasever - $basearch
-baseurl=https://download.postgresql.org/pub/repos/yum/18/redhat/rhel-$releasever-$basearch
+name=PostgreSQL 18 for RHEL $releasever_major.$releasever_minor - $basearch
+baseurl=https://download.postgresql.org/pub/repos/yum/18/redhat/rhel-$releasever_major.$releasever_minor-$basearch
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
+
+[pgdg18-archive]
+name=PostgreSQL 18 for RHEL $releasever_major.$releasever_minor - $basearch - archive
+baseurl=https://yum-archive.postgresql.org/18/redhat/rhel-$releasever_major.$releasever_minor-$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+skip_if_unavailable=1
 gpgkey=file:///etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
