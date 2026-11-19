@@ -1,46 +1,66 @@
-# cloudflared on Red Hat UBI 10 minimal, from Cloudflare's signed RPM repository (pkg.cloudflare.com).
-# The package key is in the build context (RPM-GPG-KEY-cloudflare, fingerprint
-# CC94B39C77AE7342A68B89628A682D308D4E5E73); microdnf refuses a package it does not sign.
-# The repository keeps only the latest release: VERSION must follow upstream, or the install fails.
-# LICENSE_SHA256 is the sha256 of LICENSE at the VERSION tag; the build fails if it changes.
+# cloudflared on Red Hat UBI 10 micro, from the upstream release binary.
+# VERSION and both SHA256 values change together; the sha256 values are the ones upstream publishes
+# in the release notes (and GitHub's asset digests), and the build fails if the download does not
+# match. The release binary is the one Cloudflare's RPM packages, a static Go binary. The release
+# carries no LICENSE: it comes from the release tag and is checked against SHA256_LICENSE (the
+# Apache-2.0 text, which does not change between releases).
 
 # renovate: datasource=github-releases depName=cloudflare/cloudflared
 ARG VERSION=2026.10.7
-ARG LICENSE_SHA256=58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd
+ARG SHA256_AMD64=1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872
+ARG SHA256_ARM64=3df43aedc9ff291d1735b5cb576cb97e0b157488796db2e32b28aecabb445775
+ARG SHA256_LICENSE=58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd
 
-ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG DOWNLOAD_IMAGE=registry.access.redhat.com/ubi10/ubi-minimal:10.2@sha256:ab67cd02caf8706e34a695a1432ebe965934f6128ec352a6c3f4048b43a4fb5e
+ARG BASE_IMAGE=registry.access.redhat.com/ubi10/ubi-micro:10.2@sha256:1c105e547de5d9e0bc20d06ebabee73b20bc6bba994c50ae3e207684fd8bef2b
 
-# The base is pinned by digest in the ARG above, which hadolint cannot see.
+# Both bases are pinned by digest in the ARGs above, which hadolint cannot see.
+# hadolint ignore=DL3006
+FROM ${DOWNLOAD_IMAGE} AS download
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG VERSION
+ARG SHA256_AMD64
+ARG SHA256_ARM64
+ARG SHA256_LICENSE
+ARG TARGETARCH
+
+# The binary is not an archive, so the download stage installs nothing: curl and the CA bundle
+# are in ubi-minimal. The paths are the RPM's: /usr/bin/cloudflared, and the /usr/local/bin link
+# its post-install script creates. ubi-micro has no CA bundle; the connector needs one for the TLS
+# to Cloudflare's edge, so the download stage's UBI ca-certificates bundle goes in at the RHEL
+# path, which tracks the pinned base.
+WORKDIR /tmp/cloudflared
+RUN case "${TARGETARCH}" in \
+      amd64) sha256="${SHA256_AMD64}" ;; \
+      arm64) sha256="${SHA256_ARM64}" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && binary="cloudflared-linux-${TARGETARCH}" \
+    && curl -fsSLo "${binary}" "https://github.com/cloudflare/cloudflared/releases/download/${VERSION}/${binary}" \
+    && echo "${sha256}  ${binary}" | sha256sum -c - \
+    && curl -fsSLO "https://raw.githubusercontent.com/cloudflare/cloudflared/${VERSION}/LICENSE" \
+    && echo "${SHA256_LICENSE}  LICENSE" | sha256sum -c - \
+    && install -D -m 0755 "${binary}" /out/system/usr/bin/cloudflared \
+    && install -d -m 0755 /out/system/usr/local/bin \
+    && ln -s /usr/bin/cloudflared /out/system/usr/local/bin/cloudflared \
+    && install -D -m 0644 /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /out/system/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
+    && install -d -m 0755 /out/system/etc/pki/tls/certs \
+    && ln -s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /out/system/etc/pki/tls/certs/ca-bundle.crt \
+    && install -D -m 0644 -t /out/licenses LICENSE
+
 # hadolint ignore=DL3006
 FROM ${BASE_IMAGE}
 
 ARG VERSION
-ARG LICENSE_SHA256
 ARG RELEASE
 ARG REVISION
 ARG CREATED
 ARG BASE_IMAGE
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-COPY RPM-GPG-KEY-cloudflare /etc/pki/rpm-gpg/RPM-GPG-KEY-cloudflare
-COPY cloudflared.repo /etc/yum.repos.d/cloudflared.repo
-
-# cloudflared is the only package installed: it is a static Go binary with no dependencies, and
-# ca-certificates (the TLS bundle for Cloudflare's edge) is already in ubi-minimal. Packages
-# resolve from the UBI repositories and cloudflared-stable only: RHEL repositories a subscribed
-# build host injects must not satisfy a dependency. The RPM ships no licence file, so LICENSE
-# comes from the release tag, checksum-pinned.
-# hadolint ignore=DL3041
-RUN repos=(--disablerepo='*' --enablerepo=ubi-10-baseos-rpms --enablerepo=ubi-10-appstream-rpms --enablerepo=cloudflared-stable) \
-    && microdnf -y install "${repos[@]}" --setopt=install_weak_deps=0 --nodocs "cloudflared-${VERSION}" \
-    && microdnf clean all \
-    && rpm -q --qf '%{NAME}-%{VERSION}\n' cloudflared | grep -qx "cloudflared-${VERSION}" \
-    && test -s /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem \
-    && curl -fsSLo /tmp/LICENSE "https://raw.githubusercontent.com/cloudflare/cloudflared/${VERSION}/LICENSE" \
-    && echo "${LICENSE_SHA256}  /tmp/LICENSE" | sha256sum -c - \
-    && install -D -m 0644 -t /licenses/cloudflared /tmp/LICENSE \
-    && rm -f /tmp/LICENSE
+COPY --from=download /out/system/ /
+COPY --from=download /out/licenses/ /licenses/cloudflared/
 
 # No self-update in a container: a new version is a new image. As upstream's image, an environment
 # variable rather than a flag, so it holds when the command is overridden.
@@ -59,10 +79,10 @@ CMD ["version"]
 LABEL name="panda-coop/ubi10-cloudflared" \
       version="${VERSION}" \
       release="${RELEASE}" \
-      summary="cloudflared on Red Hat UBI 10 minimal" \
-      description="cloudflared, the Cloudflare Tunnel connector, on Red Hat UBI 10 minimal. Cloudflare's signed RPM, signature-verified, rebuilt on UBI updates." \
+      summary="cloudflared on Red Hat UBI 10 micro" \
+      description="cloudflared, the Cloudflare Tunnel connector, on Red Hat UBI 10 micro. Upstream static release binary, checksum-verified, rebuilt on UBI updates." \
       io.k8s.display-name="cloudflared" \
-      io.k8s.description="cloudflared, the Cloudflare Tunnel connector: outbound-only tunnels from Cloudflare's edge to local services, on Red Hat UBI 10 minimal." \
+      io.k8s.description="cloudflared, the Cloudflare Tunnel connector: outbound-only tunnels from Cloudflare's edge to local services, on Red Hat UBI 10 micro." \
       vendor="Panda Coop" \
       maintainer="Panda Coop" \
       url="https://github.com/panda-coop/containers/tree/main/cloudflared" \
@@ -72,7 +92,7 @@ LABEL name="panda-coop/ubi10-cloudflared" \
       com.redhat.component="" \
       com.redhat.license_terms="" \
       org.opencontainers.image.title="ubi10-cloudflared" \
-      org.opencontainers.image.description="cloudflared on Red Hat UBI 10 minimal. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
+      org.opencontainers.image.description="cloudflared on Red Hat UBI 10 micro. Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the upstream project." \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
