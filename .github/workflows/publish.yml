@@ -19,10 +19,6 @@ on:
 permissions:
   contents: read
 
-env:
-  REGISTRY: quay.io/panda-coop
-  ROBOT: panda-coop+github_containers
-
 defaults:
   run:
     # GitHub runs an explicit `bash` as `bash --noprofile --norc -eo pipefail`; the implicit
@@ -35,6 +31,10 @@ jobs:
     # The OIDC subject becomes `…:environment:quay`, the one the Quay robot federation trusts;
     # the environment admits main only.
     environment: quay
+    # The quay environment's variables, under the names containerimage.py reads.
+    env:
+      REGISTRY_HOST: ${{ vars.REGISTRY_HOST }}
+      REGISTRY_USER: ${{ vars.REGISTRY_USER }}
     # One release of an image at a time, so two releases never share an epoch (ADR 0001).
     concurrency:
       group: publish-${{ inputs.image }}
@@ -47,69 +47,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: release
-        id: release
-        env:
-          IMAGE: ${{ inputs.image }}
-        run: |
-          version="$(sed -n 's/^ARG VERSION=//p' "$IMAGE/Containerfile")"
-          epoch="$(date -u +%s)"
-          .github/scripts/image-tags.sh --self-test >/dev/null
-          {
-            echo "version=$version"
-            echo "epoch=$epoch"
-            echo "created=$(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ)"
-            echo "tags=$(.github/scripts/image-tags.sh "$version" "$epoch" | paste -sd ' ' -)"
-          } >> "$GITHUB_OUTPUT"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.9
 
-      - name: build
-        env:
-          IMAGE: ${{ inputs.image }}
-          BASE_IMAGE: ${{ inputs.base-image }}
-          EPOCH: ${{ steps.release.outputs.epoch }}
-          CREATED: ${{ steps.release.outputs.created }}
-          TAGS: ${{ steps.release.outputs.tags }}
-          REVISION: ${{ github.sha }}
-        run: |
-          args=(--build-arg "RELEASE=$EPOCH" --build-arg "REVISION=$REVISION" --build-arg "CREATED=$CREATED")
-          if [ -n "$BASE_IMAGE" ]; then
-            args+=(--build-arg "BASE_IMAGE=$BASE_IMAGE")
-          fi
-          for tag in $TAGS; do
-            args+=(-t "$REGISTRY/ubi10-$IMAGE:$tag")
-          done
-          # Docker format: the OCI format drops SHELL, and the RUN steps rely on bash -o pipefail.
-          podman build --format docker "${args[@]}" -f "$IMAGE/Containerfile" "$IMAGE"
-
-      - name: quay login
-        run: |
-          # podman writes the Docker-format auth file that cosign and syft read.
-          mkdir -p "$HOME/.docker"
-          echo "REGISTRY_AUTH_FILE=$HOME/.docker/config.json" >> "$GITHUB_ENV"
-          export REGISTRY_AUTH_FILE="$HOME/.docker/config.json"
-          oidc="$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=quay" | jq -r .value)"
-          echo "::add-mask::$oidc"
-          token="$(curl -fsS -u "$ROBOT:$oidc" https://quay.io/oauth2/federation/robot/token | jq -r .token)"
-          echo "::add-mask::$token"
-          test -n "$token"
-          test "$token" != null
-          podman login -u "$ROBOT" --password-stdin quay.io <<< "$token"
-
-      - name: push
+      - name: publish
         id: push
         env:
           IMAGE: ${{ inputs.image }}
-          TAGS: ${{ steps.release.outputs.tags }}
-        run: |
-          read -r first _ <<< "$TAGS"
-          # The immutable x.y.z-<epoch> tag goes first; the floating tags follow it.
-          podman push --digestfile digest "$REGISTRY/ubi10-$IMAGE:$first"
-          for tag in $TAGS; do
-            [ "$tag" = "$first" ] || podman push "$REGISTRY/ubi10-$IMAGE:$tag"
-          done
-          echo "ref=$REGISTRY/ubi10-$IMAGE@$(cat digest)" >> "$GITHUB_OUTPUT"
-          echo "pushed $REGISTRY/ubi10-$IMAGE@$(cat digest): $TAGS" >> "$GITHUB_STEP_SUMMARY"
+          BASE_IMAGE: ${{ inputs.base-image }}
+        run: uv run --script .github/scripts/containerimage.py publish "$IMAGE"
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
