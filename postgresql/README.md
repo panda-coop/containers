@@ -15,7 +15,9 @@ documentation; no sclorg code is used.
 | Image | `quay.io/panda-coop/ubi10-postgresql` |
 | Upstream | PGDG `postgresql18-*` RPMs, PostgreSQL version in `ARG VERSION` of the [Containerfile](Containerfile); the RPM release follows the repository |
 | Base | `registry.access.redhat.com/ubi10/ubi-minimal`, pinned by digest |
-| Repositories | UBI BaseOS and AppStream, and `pgdg18` ([pgdg.repo](pgdg.repo)); every other repository is disabled for the install, so a subscribed build host's RHEL repositories cannot satisfy a dependency |
+| Repositories | UBI BaseOS and AppStream, `pgdg18` and `pgdg18-archive` ([pgdg.repo](pgdg.repo)); every other repository is disabled for the install, so a subscribed build host's RHEL repositories cannot satisfy a dependency |
+| Repository path | `rhel-<major>.<minor>-<arch>`, the base's RHEL minor (`$releasever_major.$releasever_minor`, from its `redhat-release`), not upstream's `rhel-$releasever`: `rhel-10` follows the newest RHEL minor, whose builds can need libraries the UBI base does not have yet |
+| Archive | `pgdg18-archive`, `https://yum-archive.postgresql.org/18/redhat/`, keeps the minors PGDG drops from the live repository, so a pinned `VERSION` stays installable. A repository of its own, not a second `baseurl`: several `baseurl` values are mirrors, and dnf reads the metadata of only the first that answers. Skipped while PGDG has not created it for a RHEL minor |
 | Signatures | `gpgcheck=1` and `repo_gpgcheck=1` against [PGDG-RPM-GPG-KEY-RHEL](PGDG-RPM-GPG-KEY-RHEL), fingerprint `D4BF 08AE 67A0 B4C7 A1DB CCD2 40BC A2B4 08B4 0D20`, from `pgdg-redhat-repo-latest.noarch.rpm` |
 | Not included | `llvmjit`, PostGIS, pgvector |
 | Architectures | `amd64`, `arm64` (PGDG publishes both; CI publishes `amd64`) |
@@ -149,3 +151,6 @@ task inspect IMAGE=postgresql
 
 Renovate follows the `postgres` image's `18.y` tags. Docker Hub can publish a minor before PGDG
 has its RPMs; until PGDG catches up the build fails at `microdnf install`.
+
+A Renovate bump of the base's `x.y` tag moves the PGDG path to the new RHEL minor too; until
+PGDG builds the pinned `VERSION` for that minor, the build fails at `microdnf install`.
