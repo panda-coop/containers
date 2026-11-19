@@ -1,0 +1,35 @@
+name: scan
+
+# Daily: Quay's Clair findings for every published image into code scanning. Quay scans each
+# pushed image itself, against Red Hat's VEX data for RHEL packages and OSV for Go modules; this
+# reads the results of :latest and keeps the fixable and the High or Critical ones.
+
+on:
+  schedule:
+    - cron: '47 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clair:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # SARIF into GitHub code scanning.
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.9
+          # No dependencies to cache: the scripts use the standard library only.
+          enable-cache: false
+      - run: uv run --script .github/scripts/containerimage.py scan --sarif clair.sarif
+      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: clair.sarif
+          category: clair
