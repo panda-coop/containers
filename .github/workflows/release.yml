@@ -25,10 +25,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.9
       - id: changed
         env:
           BEFORE: ${{ github.event.before }}
-        run: echo "images=$(.github/scripts/changed-images.sh "$BEFORE")" >> "$GITHUB_OUTPUT"
+        run: uv run --script .github/scripts/containerimage.py list --changed-since "$BEFORE" --github-output
 
   publish:
     needs: changes

@@ -6,3 +6,6 @@
 # Local scratch
 tmp/
 *.log
+
+# Python
+__pycache__/
