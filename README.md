@@ -17,30 +17,35 @@ Not affiliated with or supported by Red Hat or the upstream projects.
 
 ## Images
 
-| Directory | Quay repository | Base | Upstream licence |
-|---|---|---|---|
-| [`prometheus/`](prometheus/) | [`quay.io/panda-coop/ubi10-prometheus`](https://quay.io/repository/panda-coop/ubi10-prometheus) | `ubi10/ubi-micro` | `Apache-2.0` |
-| [`alertmanager/`](alertmanager/) | [`quay.io/panda-coop/ubi10-alertmanager`](https://quay.io/repository/panda-coop/ubi10-alertmanager) | `ubi10/ubi-micro` | `Apache-2.0` |
-| [`loki/`](loki/) | [`quay.io/panda-coop/ubi10-loki`](https://quay.io/repository/panda-coop/ubi10-loki) | `ubi10/ubi-micro` | `AGPL-3.0-only` |
-| [`tempo/`](tempo/) | [`quay.io/panda-coop/ubi10-tempo`](https://quay.io/repository/panda-coop/ubi10-tempo) | `ubi10/ubi-micro` | `AGPL-3.0-only` |
-| [`alloy/`](alloy/) | [`quay.io/panda-coop/ubi10-alloy`](https://quay.io/repository/panda-coop/ubi10-alloy) | `ubi10/ubi-minimal` | `Apache-2.0` |
-| [`perses/`](perses/) | [`quay.io/panda-coop/ubi10-perses`](https://quay.io/repository/panda-coop/ubi10-perses) | `ubi10/ubi-minimal` | `Apache-2.0` |
-| [`envoy/`](envoy/) | [`quay.io/panda-coop/ubi10-envoy`](https://quay.io/repository/panda-coop/ubi10-envoy) | `ubi10/ubi-minimal` | `Apache-2.0` |
-| [`traefik/`](traefik/) | [`quay.io/panda-coop/ubi10-traefik`](https://quay.io/repository/panda-coop/ubi10-traefik) | `ubi10/ubi-micro` | `MIT` |
-| [`mailpit/`](mailpit/) | [`quay.io/panda-coop/ubi10-mailpit`](https://quay.io/repository/panda-coop/ubi10-mailpit) | `ubi10/ubi-micro` | `MIT` |
-| [`garage/`](garage/) | [`quay.io/panda-coop/ubi10-garage`](https://quay.io/repository/panda-coop/ubi10-garage) | `ubi10/ubi-micro` | `AGPL-3.0` |
-| [`kafka/`](kafka/) | [`quay.io/panda-coop/ubi10-kafka`](https://quay.io/repository/panda-coop/ubi10-kafka) | `ubi10/openjdk-25-runtime` | `Apache-2.0` |
-| [`kafka-exporter/`](kafka-exporter/) | [`quay.io/panda-coop/ubi10-kafka-exporter`](https://quay.io/repository/panda-coop/ubi10-kafka-exporter) | `ubi10/ubi-micro` | `Apache-2.0` |
-| [`postgresql/`](postgresql/) | [`quay.io/panda-coop/ubi10-postgresql`](https://quay.io/repository/panda-coop/ubi10-postgresql) | `ubi10/ubi-minimal` | `PostgreSQL` |
-| [`patroni/`](patroni/) | [`quay.io/panda-coop/ubi10-patroni`](https://quay.io/repository/panda-coop/ubi10-patroni) | `ubi10/ubi-minimal` | `MIT AND PostgreSQL` |
-| [`valkey/`](valkey/) | [`quay.io/panda-coop/ubi10-valkey`](https://quay.io/repository/panda-coop/ubi10-valkey) | `ubi10/ubi-minimal` | `BSD-3-Clause` |
-| [`redis-exporter/`](redis-exporter/) | [`quay.io/panda-coop/ubi10-redis-exporter`](https://quay.io/repository/panda-coop/ubi10-redis-exporter) | `ubi10/ubi-micro` | `MIT` |
-| [`etcd/`](etcd/) | [`quay.io/panda-coop/ubi10-etcd`](https://quay.io/repository/panda-coop/ubi10-etcd) | `ubi10/ubi-micro` | `Apache-2.0` |
-| [`clickhouse/`](clickhouse/) | [`quay.io/panda-coop/ubi10-clickhouse`](https://quay.io/repository/panda-coop/ubi10-clickhouse) | `ubi10/ubi-minimal` | `Apache-2.0` |
-| [`keycloak/`](keycloak/) | [`quay.io/panda-coop/ubi10-keycloak`](https://quay.io/repository/panda-coop/ubi10-keycloak) | `ubi10/openjdk-25-runtime` | `Apache-2.0` |
-| [`cloudflared/`](cloudflared/) | [`quay.io/panda-coop/ubi10-cloudflared`](https://quay.io/repository/panda-coop/ubi10-cloudflared) | `ubi10/ubi-micro` | `Apache-2.0` |
-| [`keepalived/`](keepalived/) | [`quay.io/panda-coop/ubi10-keepalived`](https://quay.io/repository/panda-coop/ubi10-keepalived) | `ubi10/ubi-minimal` | `GPL-2.0-or-later` |
-| [`maddy/`](maddy/) | [`quay.io/panda-coop/ubi10-maddy`](https://quay.io/repository/panda-coop/ubi10-maddy) | `ubi10/ubi-micro` | `GPL-3.0-or-later` |
+| Directory | Quay repository | Base | Health | Upstream licence |
+|---|---|---|---|---|
+| [`prometheus/`](prometheus/) | [`quay.io/panda-coop/ubi10-prometheus`](https://quay.io/repository/panda-coop/ubi10-prometheus) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fprometheus.json)](https://panda-coop.github.io/containers/images/prometheus/) | `Apache-2.0` |
+| [`alertmanager/`](alertmanager/) | [`quay.io/panda-coop/ubi10-alertmanager`](https://quay.io/repository/panda-coop/ubi10-alertmanager) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Falertmanager.json)](https://panda-coop.github.io/containers/images/alertmanager/) | `Apache-2.0` |
+| [`loki/`](loki/) | [`quay.io/panda-coop/ubi10-loki`](https://quay.io/repository/panda-coop/ubi10-loki) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Floki.json)](https://panda-coop.github.io/containers/images/loki/) | `AGPL-3.0-only` |
+| [`tempo/`](tempo/) | [`quay.io/panda-coop/ubi10-tempo`](https://quay.io/repository/panda-coop/ubi10-tempo) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Ftempo.json)](https://panda-coop.github.io/containers/images/tempo/) | `AGPL-3.0-only` |
+| [`alloy/`](alloy/) | [`quay.io/panda-coop/ubi10-alloy`](https://quay.io/repository/panda-coop/ubi10-alloy) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Falloy.json)](https://panda-coop.github.io/containers/images/alloy/) | `Apache-2.0` |
+| [`perses/`](perses/) | [`quay.io/panda-coop/ubi10-perses`](https://quay.io/repository/panda-coop/ubi10-perses) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fperses.json)](https://panda-coop.github.io/containers/images/perses/) | `Apache-2.0` |
+| [`envoy/`](envoy/) | [`quay.io/panda-coop/ubi10-envoy`](https://quay.io/repository/panda-coop/ubi10-envoy) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fenvoy.json)](https://panda-coop.github.io/containers/images/envoy/) | `Apache-2.0` |
+| [`traefik/`](traefik/) | [`quay.io/panda-coop/ubi10-traefik`](https://quay.io/repository/panda-coop/ubi10-traefik) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Ftraefik.json)](https://panda-coop.github.io/containers/images/traefik/) | `MIT` |
+| [`mailpit/`](mailpit/) | [`quay.io/panda-coop/ubi10-mailpit`](https://quay.io/repository/panda-coop/ubi10-mailpit) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fmailpit.json)](https://panda-coop.github.io/containers/images/mailpit/) | `MIT` |
+| [`garage/`](garage/) | [`quay.io/panda-coop/ubi10-garage`](https://quay.io/repository/panda-coop/ubi10-garage) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fgarage.json)](https://panda-coop.github.io/containers/images/garage/) | `AGPL-3.0` |
+| [`kafka/`](kafka/) | [`quay.io/panda-coop/ubi10-kafka`](https://quay.io/repository/panda-coop/ubi10-kafka) | `ubi10/openjdk-25-runtime` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fkafka.json)](https://panda-coop.github.io/containers/images/kafka/) | `Apache-2.0` |
+| [`kafka-exporter/`](kafka-exporter/) | [`quay.io/panda-coop/ubi10-kafka-exporter`](https://quay.io/repository/panda-coop/ubi10-kafka-exporter) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fkafka-exporter.json)](https://panda-coop.github.io/containers/images/kafka-exporter/) | `Apache-2.0` |
+| [`postgresql/`](postgresql/) | [`quay.io/panda-coop/ubi10-postgresql`](https://quay.io/repository/panda-coop/ubi10-postgresql) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fpostgresql.json)](https://panda-coop.github.io/containers/images/postgresql/) | `PostgreSQL` |
+| [`patroni/`](patroni/) | [`quay.io/panda-coop/ubi10-patroni`](https://quay.io/repository/panda-coop/ubi10-patroni) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fpatroni.json)](https://panda-coop.github.io/containers/images/patroni/) | `MIT AND PostgreSQL` |
+| [`valkey/`](valkey/) | [`quay.io/panda-coop/ubi10-valkey`](https://quay.io/repository/panda-coop/ubi10-valkey) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fvalkey.json)](https://panda-coop.github.io/containers/images/valkey/) | `BSD-3-Clause` |
+| [`redis-exporter/`](redis-exporter/) | [`quay.io/panda-coop/ubi10-redis-exporter`](https://quay.io/repository/panda-coop/ubi10-redis-exporter) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fredis-exporter.json)](https://panda-coop.github.io/containers/images/redis-exporter/) | `MIT` |
+| [`etcd/`](etcd/) | [`quay.io/panda-coop/ubi10-etcd`](https://quay.io/repository/panda-coop/ubi10-etcd) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fetcd.json)](https://panda-coop.github.io/containers/images/etcd/) | `Apache-2.0` |
+| [`clickhouse/`](clickhouse/) | [`quay.io/panda-coop/ubi10-clickhouse`](https://quay.io/repository/panda-coop/ubi10-clickhouse) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fclickhouse.json)](https://panda-coop.github.io/containers/images/clickhouse/) | `Apache-2.0` |
+| [`keycloak/`](keycloak/) | [`quay.io/panda-coop/ubi10-keycloak`](https://quay.io/repository/panda-coop/ubi10-keycloak) | `ubi10/openjdk-25-runtime` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fkeycloak.json)](https://panda-coop.github.io/containers/images/keycloak/) | `Apache-2.0` |
+| [`cloudflared/`](cloudflared/) | [`quay.io/panda-coop/ubi10-cloudflared`](https://quay.io/repository/panda-coop/ubi10-cloudflared) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fcloudflared.json)](https://panda-coop.github.io/containers/images/cloudflared/) | `Apache-2.0` |
+| [`keepalived/`](keepalived/) | [`quay.io/panda-coop/ubi10-keepalived`](https://quay.io/repository/panda-coop/ubi10-keepalived) | `ubi10/ubi-minimal` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fkeepalived.json)](https://panda-coop.github.io/containers/images/keepalived/) | `GPL-2.0-or-later` |
+| [`maddy/`](maddy/) | [`quay.io/panda-coop/ubi10-maddy`](https://quay.io/repository/panda-coop/ubi10-maddy) | `ubi10/ubi-micro` | [![health](https://img.shields.io/endpoint?url=https%3A%2F%2Fpanda-coop.github.io%2Fcontainers%2Fbadges%2Fmaddy.json)](https://panda-coop.github.io/containers/images/maddy/) | `GPL-3.0-or-later` |
+
+The health column is each image's `:latest` graded A to F with Red Hat's
+[Container Health Index](https://access.redhat.com/articles/2803031) method, from Quay's Clair
+scan and Red Hat's security data, daily; computed here, not issued by Red Hat. Each image's
+packages and missing updates are on the [health site](https://panda-coop.github.io/containers/health/).
 
 The licence column is the SPDX expression in each image's `org.opencontainers.image.licenses`
 label. Upstream licences are verified at the pinned version before an image's first

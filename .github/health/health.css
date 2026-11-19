@@ -1,0 +1,151 @@
+/* The A to F health strip and the grade badges. */
+:root {
+  --grade-A: #3e8635;
+  --grade-B: #3e8635;
+  --grade-C: #dca614;
+  --grade-D: #ec7a08;
+  --grade-E: #c9190b;
+  --grade-F: #a30000;
+  --grade-Unknown: #6a6e73;
+  --health-frame: #d2d2d2;
+  --health-current: #f3faf2;
+}
+
+[data-md-color-scheme="slate"] {
+  --health-frame: #4f5255;
+  --health-current: #1e2b1d;
+}
+
+.health-index {
+  border: 1px solid var(--health-frame);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.health-index .health-title {
+  font-weight: 700;
+  margin: 0 0 .5rem;
+}
+
+.md-typeset ol.health-grades {
+  display: inline-flex;
+  list-style: none;
+  gap: .25em;
+  margin: 0;
+  padding: .25em .25em .35em;
+  border: 1px solid var(--health-frame);
+}
+
+.md-typeset ol.health-grades li {
+  margin: 0;
+  width: 2.6em;
+  padding: .45em 0 .35em;
+  text-align: center;
+  font-family: var(--md-code-font-family);
+  font-size: 1.05em;
+  border-bottom: .3em solid;
+}
+
+.md-typeset ol.health-grades li.current {
+  outline: 2px solid var(--grade-A);
+  outline-offset: -2px;
+  background: var(--health-current);
+  font-weight: 700;
+}
+
+.health-index .health-text {
+  margin: .8rem 0 .4rem;
+}
+
+.health-index .health-asof {
+  margin: .6rem 0 0;
+  color: var(--md-default-fg-color--light);
+}
+
+.health-index .health-note {
+  margin: .4rem 0 0;
+  font-size: .85em;
+  color: var(--md-default-fg-color--light);
+}
+
+
+.md-typeset ol.health-grades li.grade-A { border-bottom-color: var(--grade-A); }
+.md-typeset ol.health-grades li.grade-B { border-bottom-color: var(--grade-B); }
+.md-typeset ol.health-grades li.grade-C { border-bottom-color: var(--grade-C); }
+.md-typeset ol.health-grades li.grade-D { border-bottom-color: var(--grade-D); }
+.md-typeset ol.health-grades li.grade-E { border-bottom-color: var(--grade-E); }
+.md-typeset ol.health-grades li.grade-F { border-bottom-color: var(--grade-F); }
+
+.md-typeset ol.health-grades li.current.grade-B { outline-color: var(--grade-B); }
+.md-typeset ol.health-grades li.current.grade-C { outline-color: var(--grade-C); }
+.md-typeset ol.health-grades li.current.grade-D { outline-color: var(--grade-D); }
+.md-typeset ol.health-grades li.current.grade-E { outline-color: var(--grade-E); }
+.md-typeset ol.health-grades li.current.grade-F { outline-color: var(--grade-F); }
+
+
+/* Tags, versions and digests stay on one line in tables. */
+.md-typeset table code {
+  white-space: nowrap;
+}
+
+/* The grade alone in tables, framed with its colour bar as in the health index. */
+.md-typeset .grade-cell {
+  display: inline-block;
+  width: 1.9em;
+  padding: .2em 0 .15em;
+  border: 1.5px solid var(--grade-A);
+  border-bottom-width: .3em;
+  background: var(--health-current);
+  font-family: var(--md-code-font-family);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.md-typeset .grade-cell.grade-B { border-color: var(--grade-B); }
+.md-typeset .grade-cell.grade-C { border-color: var(--grade-C); background: transparent; }
+.md-typeset .grade-cell.grade-D { border-color: var(--grade-D); background: transparent; }
+.md-typeset .grade-cell.grade-E { border-color: var(--grade-E); background: transparent; }
+.md-typeset .grade-cell.grade-F { border-color: var(--grade-F); background: transparent; }
+.md-typeset .grade-cell.grade-Unknown {
+  border-color: var(--grade-Unknown);
+  background: transparent;
+}
+
+/* Generated pages have no source file, so no edit button. */
+.md-content:has(.generated) .md-content__button[rel="edit"] {
+  display: none;
+}
+
+/* Grey folds for the full package and release lists, with lucide's package and history icons. */
+:root {
+  --fold-grey: #757575;
+  --fold-icon--packages: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 stroke=%22currentColor%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%222%22 class=%22lucide lucide-package%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73zM12 22V12%22/%3E%3Cpath d=%22M3.29 7 12 12l8.71-5M7.5 4.27l9 5.15%22/%3E%3C/svg%3E");
+  --fold-icon--releases: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 stroke=%22currentColor%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%222%22 class=%22lucide lucide-history%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8%22/%3E%3Cpath d=%22M3 3v5h5M12 7v5l4 2%22/%3E%3C/svg%3E");
+}
+
+.md-typeset details.packages,
+.md-typeset details.releases {
+  background-color: color-mix(in srgb, var(--fold-grey) 10%, transparent);
+}
+
+.md-typeset .packages > summary::before,
+.md-typeset .releases > summary::before {
+  background-color: var(--fold-grey);
+}
+
+.md-typeset .packages > summary::before {
+  -webkit-mask-image: var(--fold-icon--packages);
+  mask-image: var(--fold-icon--packages);
+}
+
+.md-typeset .releases > summary::before {
+  -webkit-mask-image: var(--fold-icon--releases);
+  mask-image: var(--fold-icon--releases);
+}
+
+.md-typeset .packages > summary::after,
+.md-typeset .releases > summary::after {
+  color: var(--fold-grey);
+}
