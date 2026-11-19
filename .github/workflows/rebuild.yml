@@ -1,12 +1,12 @@
 name: rebuild
 
-# Weekly: rebuild a published image only when its UBI base digest changed since it was built.
+# Hourly: rebuild a published image only when its UBI base digest changed since it was built.
 # The rebuild keeps the upstream version and uses the base tag's current digest; Renovate later
 # moves the Containerfile pin to the same digest.
 
 on:
   schedule:
-    - cron: '17 4 * * 1'
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -16,6 +16,11 @@ on:
 
 permissions:
   contents: read
+
+# A run waits for the previous one, so it sees the label of an image the previous run rebuilt.
+concurrency:
+  group: rebuild
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -35,6 +40,8 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: 0.13.9
+          # No dependencies to cache: the scripts use the standard library only.
+          enable-cache: false
       - id: base
         env:
           FORCE: ${{ inputs.force || false }}
