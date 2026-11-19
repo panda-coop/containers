@@ -10,7 +10,9 @@
   containerimage.py list --named "<image> ..."   the named images, checked to exist
   containerimage.py tags <version> <epoch>       the tags of one release, immutable first
   containerimage.py publish <image>              build, push and record one release
-  containerimage.py scan --sarif <file>          Quay's Clair findings for every image, as SARIF
+  containerimage.py scan --sarif <file> [--health <dir>]
+                                                 Quay's Clair findings for every image, as SARIF,
+                                                 and each image's health grade as a site
 
 An image is a top-level directory holding a tracked Containerfile; it is published as
 quay.io/panda-coop/ubi10-<image>. `list` prints a JSON array, or with --github-output writes
@@ -29,10 +31,16 @@ sign and sbom steps reuse the login.
 
 scan reads the security scan Quay runs with Clair on each image's :latest, from Quay's public
 API, and keeps a finding when it is fixable or High or Critical; the rest stays in Quay's UI.
+With --health it grades each image with Red Hat's Container Health Index method (A to F, from
+the age of the oldest released Critical or Important fix for a Red Hat package the image lacks;
+https://access.redhat.com/articles/2803031), the fix dates from Red Hat's CSAF VEX files, and
+writes a page, a shields.io endpoint badge per image and index.json into <dir>.
 """
 
 import argparse
 import base64
+import datetime
+import html
 import json
 import os
 import re
@@ -398,8 +406,454 @@ def sarif(kept: list[dict[str, str]]) -> dict:
     }
 
 
-def scan(path: str) -> None:
-    kept = []
+# health (Red Hat's Container Health Index method)
+
+# The best grade whose limits every missing fix keeps: days since a missing Critical fix was
+# released, days since a missing Important one was. Worse than E is F.
+GRADE_LIMITS = (("B", 7, 30), ("C", 30, 90), ("D", 90, 365), ("E", 365, 365))
+GRADE_COLOURS = {
+    "A": "brightgreen",
+    "B": "green",
+    "C": "yellow",
+    "D": "orange",
+    "E": "red",
+    "F": "critical",
+    "Unknown": "lightgrey",
+}
+# Clair reports Red Hat's own rating for RHEL packages; its High is Red Hat's Important.
+IMPACT = {"Critical": "Critical", "High": "Important"}
+VEX = "https://security.access.redhat.com/data/csaf/v2/vex/{year}/{cve}.json"
+CVE = re.compile(r"^CVE-(\d{4})-\d+$")
+
+
+def unapplied(report: dict) -> list[dict[str, str]]:
+    """Released Critical or Important fixes for Red Hat packages the image does not have."""
+    missing = []
+    for feature in (report.get("data") or {}).get("Layer", {}).get("Features", []):
+        for vulnerability in feature.get("Vulnerabilities") or []:
+            impact = IMPACT.get(vulnerability.get("Severity") or "")
+            if (
+                vulnerability.get("NamespaceName") == "rhel-vex"
+                and vulnerability.get("FixedBy")
+                and impact
+            ):
+                missing.append(
+                    {
+                        "id": vulnerability["Name"],
+                        "package": feature["Name"],
+                        "fixed_by": vulnerability["FixedBy"],
+                        "impact": impact,
+                    }
+                )
+    return missing
+
+
+def fix_released(vex: dict, package: str, fixed_by: str) -> datetime.datetime | None:
+    """When Red Hat released the fix: the vendor_fix naming the package at that version, else
+    the earliest RHEL 10 vendor_fix, else the CVE's first publication."""
+    version = re.escape(fixed_by.split(":")[-1])
+    exact = re.compile(rf":{re.escape(package)}-\d+:{version}\.")
+    dates, rhel10 = [], []
+    for vulnerability in vex.get("vulnerabilities", []):
+        for remediation in vulnerability.get("remediations", []):
+            if remediation.get("category") != "vendor_fix" or not remediation.get(
+                "date"
+            ):
+                continue
+            products = remediation.get("product_ids", [])
+            date = datetime.datetime.fromisoformat(remediation["date"])
+            if any(exact.search(p) for p in products):
+                dates.append(date)
+            if any(
+                p.startswith(("BaseOS-10", "AppStream-10", "CRB-10")) for p in products
+            ):
+                rhel10.append(date)
+    if dates or rhel10:
+        return min(dates or rhel10)
+    published = vex.get("document", {}).get("tracking", {}).get("initial_release_date")
+    return datetime.datetime.fromisoformat(published) if published else None
+
+
+def grade(missing: list[dict], now: datetime.datetime) -> str:
+    ages = [(m["impact"], (now - m["released"]).days) for m in missing]
+    if not ages:
+        return "A"
+    for letter, critical, important in GRADE_LIMITS:
+        if all(
+            age <= (critical if impact == "Critical" else important)
+            for impact, age in ages
+        ):
+            return letter
+    return "F"
+
+
+def health(image: str, report: dict | None, now: datetime.datetime, vex) -> dict:
+    """One image's grade; vex(cve) returns Red Hat's VEX document for a CVE, or {}."""
+    if report is None:
+        return {"image": image, "grade": "Unknown", "missing": [], "packages": []}
+    missing = []
+    for m in unapplied(report):
+        match = CVE.match(m["id"])
+        released = (
+            fix_released(vex(m["id"]), m["package"], m["fixed_by"]) if match else None
+        )
+        # An undated fix counts as released now: it cannot be dated, so it is not aged.
+        missing.append({**m, "released": released or now})
+    missing.sort(key=lambda m: m["released"])
+    return {
+        "image": image,
+        "grade": grade(missing, now),
+        "missing": missing,
+        "packages": packages(report),
+    }
+
+
+def package_type(name: str, version: str) -> str:
+    # Clair lists the Red Hat images an image is built from (ubi10/ubi-minimal and the like)
+    # with Red Hat's build timestamp as the version.
+    if "/" in name and re.fullmatch(r"\d{9,}", version):
+        return "Image"
+    if re.search(r"\.(el|rhel)\d", version):
+        return "RPM"
+    if ":" in name:
+        return "Java"
+    if "/" in name or name == "stdlib":
+        return "Go"
+    return "Other"
+
+
+def packages(report: dict | None) -> list[dict]:
+    # One row per name and version: Clair repeats a package once per layer it found it in.
+    rows: dict[tuple[str, str], dict] = {}
+    for feature in (
+        ((report or {}).get("data") or {}).get("Layer", {}).get("Features", [])
+    ):
+        found = feature.get("Vulnerabilities") or []
+        key = (feature["Name"], feature["Version"])
+        row = rows.setdefault(
+            key,
+            {
+                "name": feature["Name"],
+                "version": feature["Version"],
+                "type": package_type(feature["Name"], feature["Version"]),
+                "findings": 0,
+                "fixable": 0,
+            },
+        )
+        row["findings"] = max(row["findings"], len(found))
+        row["fixable"] = max(row["fixable"], sum(1 for v in found if v.get("FixedBy")))
+    order = ("Image", "RPM", "Go", "Java", "Other")
+    return sorted(
+        rows.values(), key=lambda r: (order.index(r["type"]), r["name"].lower())
+    )
+
+
+GRADE_TEXT = {
+    "A": "No released Critical or Important update for a Red Hat package is missing.",
+    "Unknown": "Quay has not scanned this image yet; the grade follows its next scan.",
+}
+
+
+def strip(g: dict, now: datetime.datetime) -> str:
+    """The A to F strip, the current grade framed, with its explanation."""
+    cells = "".join(
+        f'<li class="grade-{x}{" current" if x == g["grade"] else ""}">{x}</li>'
+        for x in "ABCDEF"
+    )
+    if g["grade"] in GRADE_TEXT:
+        text = GRADE_TEXT[g["grade"]]
+    else:
+        oldest = g["missing"][0]
+        days = (now - oldest["released"]).days
+        text = (
+            f"{len(g['missing'])} released Critical or Important update(s) for Red Hat "
+            f"packages missing; the oldest, {html.escape(oldest['id'])} in "
+            f"{html.escape(oldest['package'])}, was released "
+            f"{oldest['released']:%Y-%m-%d} ({days} days ago)."
+        )
+    return (
+        '<div class="health-index">\n'
+        '<p class="health-title">Health grade</p>\n'
+        f'<ol class="health-grades">{cells}</ol>\n'
+        f'<p class="health-text"><strong>{text}</strong><br>\n'
+        "Only RPM packages signed by Red Hat are graded; other software in the image is "
+        "not.</p>\n"
+        f'<p class="health-asof">Graded on {now:%d %b %Y, %H:%M} UTC</p>\n'
+        '<p class="health-note">Calculated by this project with the method Red Hat publishes '
+        'for its <a href="https://access.redhat.com/articles/2803031">Container Health '
+        "Index</a>. Not issued by, affiliated with or endorsed by Red Hat.</p>\n"
+        "</div>\n"
+    )
+
+
+def cell(text: str) -> str:
+    return str(text).replace("|", "\\|")
+
+
+def write_health(directory: str, grades: list[dict], now: datetime.datetime) -> None:
+    """The health site's Markdown for Zensical, plus a shields.io endpoint badge per image."""
+    root = Path(directory)
+    for sub in ("badges", "images"):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    # The site's fixed files: its stylesheet, and the getting-started page as its home, at
+    # the path the edit button points to.
+    static = Path(__file__).resolve().parent.parent / "health"
+    for name in ("health.css", "index.md"):
+        (root / name).write_text((static / name).read_text())
+
+    for g in grades:
+        badge = {
+            "schemaVersion": 1,
+            "label": "health",
+            "message": g["grade"],
+            "color": GRADE_COLOURS[g["grade"]],
+        }
+        (root / "badges" / f"{g['image']}.json").write_text(json.dumps(badge) + "\n")
+
+    summary = [
+        {
+            "image": g["image"],
+            "grade": g["grade"],
+            "missing": [
+                {**m, "released": m["released"].date().isoformat()}
+                for m in g["missing"]
+            ],
+        }
+        for g in grades
+    ]
+    as_of = now.strftime("%Y-%m-%d %H:%M UTC")
+    (root / "health.json").write_text(
+        json.dumps({"as_of": as_of, "images": summary}, indent=1) + "\n"
+    )
+
+    rows = []
+    for g in grades:
+        pkgs = g["packages"]
+        rows.append(
+            f"| [ubi10-{g['image']}](images/{g['image']}.md) "
+            f"| {mini(g['grade'])} "
+            f"| {len(g['missing'])} | {len(pkgs)} "
+            f"| {sum(p['findings'] for p in pkgs)} |"
+        )
+    (root / "health.md").write_text(
+        OVERVIEW.format(as_of=as_of, rows="\n".join(rows)), encoding="utf-8"
+    )
+
+    for g in grades:
+        image = g["image"]
+        repository = REPOSITORY.format(image=image)
+        quay = "https://" + repository.replace("quay.io/", "quay.io/repository/", 1)
+        lines = [
+            f"# ubi10-{image}",
+            "",
+            GENERATED,
+            "",
+            strip(g, now),
+            "| Item | Value |",
+            "|---|---|",
+            f"| Repository | [`{repository}`]({quay}) |",
+            f"| Scanned | `:latest`, `{g.get('digest') or 'not scanned'}` |",
+            f"| Source | [`{image}/`]({GITHUB}/tree/main/{image}) |",
+            f"| Base | `{cell(read_arg(image, 'BASE_IMAGE').split('@')[0])}` |",
+            "",
+            "## Missing security updates",
+            "",
+        ]
+        if g["missing"]:
+            lines += [
+                "| Flaw | Impact | Package | Fixed in | Released |",
+                "|---|---|---|---|---|",
+            ]
+            for m in g["missing"]:
+                cve = m["id"]
+                lines.append(
+                    f"| [{cve}](https://access.redhat.com/security/cve/{cve.lower()}) "
+                    f"| {m['impact']} | `{cell(m['package'])}` | `{cell(m['fixed_by'])}` "
+                    f"| {m['released']:%Y-%m-%d} |"
+                )
+        else:
+            lines.append("None.")
+        pkgs = g["packages"]
+        counts = ", ".join(
+            f"{sum(1 for p in pkgs if p['type'] == t)} {t}"
+            for t in ("Image", "RPM", "Go", "Java", "Other")
+            if any(p["type"] == t for p in pkgs)
+        )
+        lines += [
+            "",
+            "## Packages",
+            "",
+            (
+                f"{len(pkgs)} packages ({counts or 'none'}), as Clair found them. "
+                "Findings are every known flaw, fixed or not; Fixable is how many have a fix."
+            ),
+            "",
+        ]
+        if pkgs:
+            flagged = sorted(pkgs, key=lambda p: (-p["findings"], -p["fixable"]))
+            lines += [
+                f"The {min(PREVIEW, len(pkgs))} with the most findings:",
+                "",
+                *package_table(flagged[:PREVIEW]),
+                "",
+                # Folded: an image can hold a thousand packages.
+                f'??? packages "All {len(pkgs)} packages"',
+                "",
+                *("    " + row for row in package_table(pkgs)),
+            ]
+        lines += [
+            "",
+            "## Releases",
+            "",
+            (
+                "Releases on Quay, newest first. A release tag never moves; the other "
+                "tags follow the newest release of their line. Each release graded as "
+                "of today."
+            ),
+            "",
+        ]
+        history = g.get("releases") or []
+        if not history:
+            lines.append("None yet.")
+        elif len(history) <= PREVIEW:
+            lines += release_table(history)
+        else:
+            lines += [
+                *release_table(history[:PREVIEW]),
+                "",
+                f'??? releases "All {len(history)} releases"',
+                "",
+                *("    " + row for row in release_table(history)),
+            ]
+        containerfile = Path(image, "Containerfile").read_text().rstrip("\n")
+        lines += [
+            "",
+            "## Containerfile",
+            "",
+            f"[`{image}/Containerfile`]({GITHUB}/blob/main/{image}/Containerfile) on `main`:",
+            "",
+            "```dockerfile",
+            containerfile,
+            "```",
+        ]
+        (root / "images" / f"{image}.md").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+
+
+GITHUB = "https://github.com/panda-coop/containers"
+PREVIEW = 10
+
+
+def mini(letter: str) -> str:
+    """The grade alone, framed with its colour bar, as it stands in the health index."""
+    return f'<span class="grade-cell grade-{letter}" title="Grade {letter}">{letter}</span>'
+
+
+def package_table(pkgs: list[dict]) -> list[str]:
+    return [
+        "| Package | Version | Type | Findings | Fixable |",
+        "|---|---|---|---|---|",
+        *(
+            f"| `{cell(p['name'])}` | `{cell(p['version'])}` | {p['type']} "
+            f"| {p['findings']} | {p['fixable']} |"
+            for p in pkgs
+        ),
+    ]
+
+
+def release_table(history: list[dict]) -> list[str]:
+    return [
+        "| Release | Published | Grade | Also tagged | Digest |",
+        "|---|---|---|---|---|",
+        *(
+            f"| `{r['tag']}` | {r['published']:%Y-%m-%d %H:%M} | {mini(r['grade'])} "
+            f"| {', '.join(f'`{t}`' for t in r['floating'])} | `{r['digest'][:19]}` |"
+            for r in history
+        ),
+    ]
+
+
+GENERATED = '<span class="generated" hidden></span>'
+
+OVERVIEW = """# Image health
+
+<span class="generated" hidden></span>
+
+Each image's `:latest`, graded with the method Red Hat publishes for its
+[Container Health Index](https://access.redhat.com/articles/2803031): **A** means no released
+Critical or Important security update for a Red Hat package is missing; **B** to **F** grade
+the age of the oldest one that is. Only RPM packages signed by Red Hat count.
+
+The packages and flaws come from the scan [Quay](https://quay.io/organization/panda-coop) runs
+with Clair on every pushed image; the release dates of the fixes from Red Hat Product
+Security's [CSAF VEX data](https://security.access.redhat.com/data/csaf/v2/vex/). Computed
+daily by this repository's scan workflow, not issued by Red Hat. As of {as_of}.
+
+| Image | Grade | Missing updates | Packages | Findings |
+|---|---|---|---|---|
+{rows}
+
+Machine-readable: [health.json](health.json), and a
+[shields.io](https://shields.io/badges/endpoint-badge) endpoint badge per image under
+`badges/<image>.json`.
+"""
+
+
+RELEASE_TAG = re.compile(r"-[1-9][0-9]{9,}$")
+
+
+def releases(image: str, now: datetime.datetime, vex, keep: int = 30) -> list[dict]:
+    """The newest releases on Quay, each with the floating tags on it and its grade."""
+    tags_on: dict[str, list[str]] = {}
+    found = []
+    page = 1
+    while True:
+        listing = quay_api(image, f"tag/?onlyActiveTags=true&limit=100&page={page}")
+        for tag in listing.get("tags", []):
+            tags_on.setdefault(tag["manifest_digest"], []).append(tag["name"])
+            if RELEASE_TAG.search(tag["name"]):
+                found.append(tag)
+        if not listing.get("has_additional"):
+            break
+        page += 1
+    found.sort(key=lambda t: t["start_ts"], reverse=True)
+    history = []
+    for tag in found[:keep]:
+        digest = tag["manifest_digest"]
+        report = quay_api(image, f"manifest/{digest}/security?vulnerabilities=true")
+        scanned = report if report.get("status") == "scanned" else None
+        history.append(
+            {
+                "tag": tag["name"],
+                "published": datetime.datetime.fromtimestamp(
+                    tag["start_ts"], datetime.UTC
+                ),
+                "digest": digest,
+                "floating": sorted(t for t in tags_on[digest] if t != tag["name"]),
+                "grade": health(image, scanned, now, vex)["grade"],
+            }
+        )
+    return history
+
+
+def scan(path: str, health_dir: str | None = None) -> None:
+    kept, grades = [], []
+    now = datetime.datetime.now(datetime.UTC)
+    documents: dict[str, dict] = {}
+
+    def vex(cve: str) -> dict:
+        if cve not in documents:
+            year = CVE.match(cve).group(1)
+            # A CVE Red Hat has no VEX file for yet is dated by the fallbacks.
+            url = VEX.format(year=year, cve=cve.lower())
+            try:
+                with urllib.request.urlopen(url, timeout=30) as response:
+                    documents[cve] = json.load(response)
+            except urllib.error.HTTPError:
+                documents[cve] = {}
+        return documents[cve]
+
     for image in all_images():
         tags_page = quay_api(image, "tag/?specificTag=latest&onlyActiveTags=true")
         if not tags_page.get("tags"):
@@ -409,12 +863,20 @@ def scan(path: str) -> None:
         report = quay_api(image, f"manifest/{digest}/security?vulnerabilities=true")
         if report.get("status") != "scanned":
             note(f"{image}: Quay scan {report.get('status')}, skipped")
+            grades.append(health(image, None, now, vex))
             continue
         found = findings(image, report)
-        note(f"{image}: {len(found)} findings kept")
+        graded = {**health(image, report, now, vex), "digest": digest}
+        if health_dir:
+            graded["releases"] = releases(image, now, vex)
+        grades.append(graded)
+        note(f"{image}: {len(found)} findings kept, health {grades[-1]['grade']}")
         kept += found
     Path(path).write_text(json.dumps(sarif(kept), indent=1) + "\n")
     note(f"{len(kept)} findings in {path}")
+    if health_dir:
+        write_health(health_dir, grades, now)
+        note(f"health of {len(grades)} images in {health_dir}")
 
 
 def main() -> None:
@@ -444,6 +906,7 @@ def main() -> None:
 
     scanning = commands.add_parser("scan", help="Quay's Clair findings as SARIF")
     scanning.add_argument("--sarif", required=True, metavar="FILE")
+    scanning.add_argument("--health", metavar="DIR", help="write the health site here")
 
     args = parser.parse_args()
     os.chdir(git("rev-parse", "--show-toplevel").strip())
@@ -467,7 +930,7 @@ def main() -> None:
         except ValueError as error:
             fail(str(error))
     elif args.command == "scan":
-        scan(args.sarif)
+        scan(args.sarif, args.health)
     else:
         publish(args.image)
 
