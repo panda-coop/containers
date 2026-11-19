@@ -1,5 +1,12 @@
 import pytest
-from containerimage import changed_images, containerfile_arg, named, tags
+from containerimage import (
+    changed_images,
+    containerfile_arg,
+    findings,
+    named,
+    sarif,
+    tags,
+)
 
 EPOCH = "1761900000"
 
@@ -71,3 +78,61 @@ def test_named() -> None:
         named("maddy nosuchimage")
     with pytest.raises(SystemExit):
         named(" ")
+
+
+REPORT = {
+    "status": "scanned",
+    "data": {
+        "Layer": {
+            "Features": [
+                {
+                    "Name": "openssl-libs",
+                    "Version": "3.5.1-1.el10",
+                    "Vulnerabilities": [
+                        {"Name": "CVE-1", "Severity": "High", "FixedBy": ""},
+                        {"Name": "CVE-2", "Severity": "Medium", "FixedBy": ""},
+                        {"Name": "CVE-3", "Severity": "Low", "FixedBy": "3.5.1-2.el10"},
+                    ],
+                },
+                {
+                    "Name": "stdlib",
+                    "Version": "1.27.3",
+                    "Vulnerabilities": [
+                        {
+                            "Name": "GO-1",
+                            "Severity": "Unknown",
+                            "FixedBy": "1.27.4",
+                            "NamespaceName": "osv/go",
+                            "Link": "https://go.dev/issue/1 https://go.dev/issue/2",
+                        }
+                    ],
+                },
+                {"Name": "bash", "Version": "5.2", "Vulnerabilities": None},
+            ]
+        }
+    },
+}
+
+
+def test_findings_keeps_fixable_or_high() -> None:
+    kept = findings("maddy", REPORT)
+    assert [f["id"] for f in kept] == ["CVE-1", "CVE-3", "GO-1"]
+    assert kept[2]["link"] == "https://go.dev/issue/1"
+
+
+def test_sarif() -> None:
+    run = sarif(findings("maddy", REPORT) + findings("mailpit", REPORT))["runs"][0]
+    rules = {r["id"]: r for r in run["tool"]["driver"]["rules"]}
+    assert sorted(rules) == ["CVE-1", "CVE-3", "GO-1"]
+    assert rules["CVE-1"]["properties"]["security-severity"] == "8.0"
+    assert "security-severity" not in rules["GO-1"]["properties"]
+    assert len(run["results"]) == 6
+    first = run["results"][0]
+    assert first["level"] == "error"
+    assert first["message"]["text"] == (
+        "ubi10-maddy: openssl-libs 3.5.1-1.el10, CVE-1 (High), no fix yet"
+    )
+    location = first["locations"][0]["physicalLocation"]["artifactLocation"]
+    assert location["uri"] == "maddy/Containerfile"
+    fingerprints = {r["partialFingerprints"]["finding/v1"] for r in run["results"]}
+    assert len(fingerprints) == 6

@@ -10,6 +10,7 @@
   containerimage.py list --named "<image> ..."   the named images, checked to exist
   containerimage.py tags <version> <epoch>       the tags of one release, immutable first
   containerimage.py publish <image>              build, push and record one release
+  containerimage.py scan --sarif <file>          Quay's Clair findings for every image, as SARIF
 
 An image is a top-level directory holding a tracked Containerfile; it is published as
 quay.io/panda-coop/ubi10-<image>. `list` prints a JSON array, or with --github-output writes
@@ -25,6 +26,9 @@ publish reads from the environment:
 
 and writes ref=<image>@<digest> to GITHUB_OUTPUT and REGISTRY_AUTH_FILE to GITHUB_ENV, so the
 sign and sbom steps reuse the login.
+
+scan reads the security scan Quay runs with Clair on each image's :latest, from Quay's public
+API, and keeps a finding when it is fixable or High or Critical; the rest stays in Quay's UI.
 """
 
 import argparse
@@ -191,8 +195,9 @@ def base_moved(every: bool) -> list[dict[str, str]]:
 # publish
 
 
-def get_json(url: str, authorization: str) -> dict:
-    request = urllib.request.Request(url, headers={"Authorization": authorization})
+def get_json(url: str, authorization: str = "") -> dict:
+    headers = {"Authorization": authorization} if authorization else {}
+    request = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.load(response)
@@ -282,6 +287,136 @@ def publish(image: str) -> None:
         append("GITHUB_STEP_SUMMARY", f"pushed {ref}: {' '.join(release)}")
 
 
+# scan
+
+SEVERITIES = ("Critical", "High", "Medium", "Low", "Negligible", "Unknown")
+# GitHub ranks code-scanning alerts by security-severity: >= 9 critical, >= 7 high, >= 4
+# medium, else low.
+SECURITY_SEVERITY = {"Critical": "9.5", "High": "8.0", "Medium": "5.5", "Low": "3.0"}
+
+
+def quay_api(image: str, path: str) -> dict:
+    host, repository = REPOSITORY.format(image=image).split("/", 1)
+    return get_json(f"https://{host}/api/v1/repository/{repository}/{path}")
+
+
+def findings(image: str, report: dict) -> list[dict[str, str]]:
+    """The kept findings of one Clair report: fixable, or High or Critical."""
+    kept = []
+    for feature in (report.get("data") or {}).get("Layer", {}).get("Features", []):
+        for vulnerability in feature.get("Vulnerabilities") or []:
+            severity = vulnerability.get("Severity") or "Unknown"
+            if severity not in SEVERITIES:
+                severity = "Unknown"
+            fixed_by = vulnerability.get("FixedBy") or ""
+            if not fixed_by and severity not in ("Critical", "High"):
+                continue
+            kept.append(
+                {
+                    "image": image,
+                    "id": vulnerability["Name"],
+                    "package": feature["Name"],
+                    "version": feature["Version"],
+                    "severity": severity,
+                    "fixed_by": fixed_by,
+                    "source": vulnerability.get("NamespaceName") or "",
+                    "link": (vulnerability.get("Link") or "").split(" ")[0],
+                    "description": (vulnerability.get("Description") or "").strip(),
+                }
+            )
+    return kept
+
+
+def sarif(kept: list[dict[str, str]]) -> dict:
+    """One SARIF run, a rule per vulnerability id and a result per image and package."""
+    rules: dict[str, dict] = {}
+    results = []
+    for f in sorted(kept, key=lambda f: (f["image"], f["package"], f["id"])):
+        rule = rules.setdefault(
+            f["id"],
+            {
+                "id": f["id"],
+                "shortDescription": {"text": f["id"]},
+                "fullDescription": {"text": f["description"] or f["id"]},
+                "helpUri": f["link"] or None,
+                "properties": {
+                    "tags": ["security", f["source"]],
+                    "severity": "Unknown",
+                },
+            },
+        )
+        # A rule carries the highest severity any of its findings has.
+        if SEVERITIES.index(f["severity"]) < SEVERITIES.index(
+            rule["properties"]["severity"]
+        ):
+            rule["properties"]["severity"] = f["severity"]
+        fix = f"fixed in {f['fixed_by']}" if f["fixed_by"] else "no fix yet"
+        results.append(
+            {
+                "ruleId": f["id"],
+                "level": "error"
+                if f["severity"] in ("Critical", "High")
+                else "warning",
+                "message": {
+                    "text": f"ubi10-{f['image']}: {f['package']} {f['version']}, "
+                    f"{f['id']} ({f['severity']}), {fix}"
+                },
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": f"{f['image']}/Containerfile"},
+                            "region": {"startLine": 1},
+                        }
+                    }
+                ],
+                "partialFingerprints": {
+                    "finding/v1": f"{f['image']}/{f['package']}/{f['id']}"
+                },
+            }
+        )
+    for rule in rules.values():
+        severity = rule["properties"].pop("severity")
+        if severity in SECURITY_SEVERITY:
+            rule["properties"]["security-severity"] = SECURITY_SEVERITY[severity]
+        if rule["helpUri"] is None:
+            del rule["helpUri"]
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Clair",
+                        "informationUri": "https://quay.github.io/clair/",
+                        "rules": list(rules.values()),
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+
+
+def scan(path: str) -> None:
+    kept = []
+    for image in all_images():
+        tags_page = quay_api(image, "tag/?specificTag=latest&onlyActiveTags=true")
+        if not tags_page.get("tags"):
+            note(f"{image}: not published yet, skipped")
+            continue
+        digest = tags_page["tags"][0]["manifest_digest"]
+        report = quay_api(image, f"manifest/{digest}/security?vulnerabilities=true")
+        if report.get("status") != "scanned":
+            note(f"{image}: Quay scan {report.get('status')}, skipped")
+            continue
+        found = findings(image, report)
+        note(f"{image}: {len(found)} findings kept")
+        kept += found
+    Path(path).write_text(json.dumps(sarif(kept), indent=1) + "\n")
+    note(f"{len(kept)} findings in {path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -307,6 +442,9 @@ def main() -> None:
     )
     publishing.add_argument("image")
 
+    scanning = commands.add_parser("scan", help="Quay's Clair findings as SARIF")
+    scanning.add_argument("--sarif", required=True, metavar="FILE")
+
     args = parser.parse_args()
     os.chdir(git("rev-parse", "--show-toplevel").strip())
 
@@ -328,6 +466,8 @@ def main() -> None:
             print("\n".join(tags(args.version, args.epoch)))
         except ValueError as error:
             fail(str(error))
+    elif args.command == "scan":
+        scan(args.sarif)
     else:
         publish(args.image)
 
