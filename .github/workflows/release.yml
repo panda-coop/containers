@@ -1,10 +1,16 @@
 name: release
 
-# A push to main releases every changed image.
+# A push to main releases every changed image; a manual run releases the images it names.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      images:
+        description: Images to release, space-separated (e.g. maddy mailpit)
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -31,7 +37,13 @@ jobs:
       - id: changed
         env:
           BEFORE: ${{ github.event.before }}
-        run: uv run --script .github/scripts/containerimage.py list --changed-since "$BEFORE" --github-output
+          IMAGES: ${{ inputs.images }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            uv run --script .github/scripts/containerimage.py list --named "$IMAGES" --github-output
+          else
+            uv run --script .github/scripts/containerimage.py list --changed-since "$BEFORE" --github-output
+          fi
 
   publish:
     needs: changes

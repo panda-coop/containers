@@ -1,5 +1,5 @@
 import pytest
-from containerimage import changed_images, containerfile_arg, tags
+from containerimage import changed_images, containerfile_arg, named, tags
 
 EPOCH = "1761900000"
 
@@ -63,3 +63,11 @@ def test_changed_images() -> None:
     paths = ["maddy/Containerfile", "README.md", "mailpit/README.md", ".github/x.yml"]
     assert changed_images(paths, images) == ["maddy", "mailpit"]
     assert changed_images(["README.md"], images) == []
+
+
+def test_named() -> None:
+    assert named("mailpit, maddy maddy") == ["maddy", "mailpit"]
+    with pytest.raises(SystemExit):
+        named("maddy nosuchimage")
+    with pytest.raises(SystemExit):
+        named(" ")

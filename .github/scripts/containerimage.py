@@ -7,6 +7,7 @@
 
   containerimage.py list --changed-since <sha>   images whose directory changed since <sha>
   containerimage.py list --base-moved [--all]    published images whose UBI base digest moved
+  containerimage.py list --named "<image> ..."   the named images, checked to exist
   containerimage.py tags <version> <epoch>       the tags of one release, immutable first
   containerimage.py publish <image>              build, push and record one release
 
@@ -117,6 +118,18 @@ def tags(version: str, epoch: str) -> list[str]:
 
 
 # list
+
+
+def named(names: str) -> list[str]:
+    """The images named, space- or comma-separated; an unknown name fails."""
+    images = all_images()
+    wanted = sorted(set(names.replace(",", " ").split()))
+    if not wanted:
+        fail("no image named")
+    unknown = [n for n in wanted if n not in images]
+    if unknown:
+        fail(f"not an image directory: {' '.join(unknown)}")
+    return wanted
 
 
 def changed_since(base: str) -> list[str]:
@@ -277,6 +290,7 @@ def main() -> None:
     which = listing.add_mutually_exclusive_group(required=True)
     which.add_argument("--changed-since", metavar="SHA")
     which.add_argument("--base-moved", action="store_true")
+    which.add_argument("--named", metavar="IMAGES")
     listing.add_argument(
         "--all", action="store_true", help="with --base-moved: every published image"
     )
@@ -299,11 +313,12 @@ def main() -> None:
     if args.command == "list":
         if args.all and not args.base_moved:
             parser.error("--all goes with --base-moved")
-        images = (
-            base_moved(args.all)
-            if args.base_moved
-            else changed_since(args.changed_since)
-        )
+        if args.base_moved:
+            images = base_moved(args.all)
+        elif args.named is not None:
+            images = named(args.named)
+        else:
+            images = changed_since(args.changed_since)
         line = json.dumps(images, separators=(",", ":"))
         if args.github_output:
             append("GITHUB_OUTPUT", f"images={line}")
