@@ -4,9 +4,9 @@
 Cloudflare Tunnel connector, upstream's static release binary checksum-verified against the
 sha256 Cloudflare publishes with the release, rebuilt on UBI updates.
 
-The connector for a remotely-managed tunnel on `lb-01` and `lb-02`: both run a connector of the
-same tunnel, so they are active/active replicas, and each forwards to the Envoy on its own host.
-The tunnel's routes live in the Cloudflare dashboard, not in the container.
+The connector for a remotely-managed tunnel: several hosts may run a connector of the same tunnel
+as active/active replicas. The tunnel's routes live in the Cloudflare dashboard, not in the
+container.
 
 Built from github.com/panda-coop/containers. Not affiliated with or supported by Red Hat or the
 upstream project.
@@ -109,7 +109,7 @@ HealthStartPeriod=30s
 Restart=always
 ```
 
-With `Network=host` the tunnel's origin is the host's Envoy as configured in the dashboard, and
+With `Network=host` the tunnel reaches origins on the host as configured in the dashboard, and
 the metrics stay on the loopback; use `--metrics 0.0.0.0:2000` with a published port for a
 bridge network or a remote scrape.
 
